@@ -147,6 +147,8 @@ Profile behavior:
 This checkout can use a conservative push guard when a public repository and a private mirror are configured together:
 
 ```bash
+git config core.hooksPath .githooks
+git config alias.safe-push '!python3 scripts/safe_push.py'
 git safe-push
 ```
 

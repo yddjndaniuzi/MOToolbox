@@ -1,0 +1,49 @@
+# AI / OS 横向词
+AI 手机
+端侧 AI
+端侧大模型
+大模型
+智能体
+Agent
+GUI Agent
+Copilot
+Copilot 范式
+AI 助手
+AI 消除
+AI 通话总结
+AI 搜图
+图生图
+AI 期货
+OTA
+Galaxy AI
+Apple Intelligence
+Siri
+YOYO
+小布
+小布记忆
+小 V
+蓝心大模型
+蓝心智能
+PhoneGPT
+盘古大模型
+魔法大模型
+MagicLM
+Gemini
+Google Gemini
+HarmonyOS
+HarmonyOS NEXT
+原生鸿蒙
+OriginOS
+ColorOS
+MagicOS
+HyperOS
+iOS
+iPadOS
+macOS
+watchOS
+One UI
+原子岛
+荣耀任意门
+灵动岛
+手记
+

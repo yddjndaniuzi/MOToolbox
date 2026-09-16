@@ -1,0 +1,11 @@
+{
+  "name": "手机/消费电子",
+  "description": "手机、平板、穿戴和消费电子发布会",
+  "keywords": ["手机", "旗舰", "影像", "屏幕", "续航", "充电", "平板", "耳机"],
+  "strong_keywords": ["iphone", "galaxy", "mate", "pura", "find x", "vivo x", "小米", "荣耀magic", "骁龙", "天玑"],
+  "sections": ["概述", "产品概要", "价格", "参数表", "发布会详情"],
+  "fact_types": ["model", "sku", "price", "chip", "display", "imaging", "battery", "charging", "availability"],
+  "hotwords": ["SKU", "影像", "长焦", "传感器", "芯片", "散热", "电池", "快充", "首销", "国补"],
+  "analyst_role": "头部手机品牌市场与竞情团队的内部分析师",
+  "guidance": "关注代际升级、SKU、芯片、影像、屏幕、续航、价格权益及竞品卡位；区分官方宣称与可验证升级。"
+}

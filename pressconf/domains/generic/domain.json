@@ -1,0 +1,11 @@
+{
+  "name": "通用科技",
+  "description": "无法可靠归类时使用的通用发布会模板",
+  "keywords": [],
+  "strong_keywords": [],
+  "sections": ["核心信息", "产品与能力", "数据与价格", "现场演示", "发布节奏", "待核实事项", "发布会详情"],
+  "fact_types": ["entity", "number", "price", "date", "claim", "comparison", "availability"],
+  "hotwords": ["发布会", "产品", "技术", "价格", "上市", "交付", "演示"],
+  "analyst_role": "科技行业研究与业务分析师",
+  "guidance": "不套用特定行业黑话。区分事实、官方宣称、现场演示和分析判断，保留所有关键数字及其限定条件。"
+}

@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>舆情扫描实验版</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='web.css') }}">
+</head>
+<body>
+  <main class="shell opinion-shell">
+    <header class="toolbox-header">
+      <div>
+        <p class="eyebrow">Opinion Scan Preview</p>
+        <h1>舆情扫描实验版</h1>
+        <p class="muted">独立实验入口：先把链接、文本或 CSV 扫进来，生成可追溯的舆情/竞品扫描报告。</p>
+      </div>
+      <div class="entry-links">
+        <a class="admin-entry" href="{{ url_for('index') }}">返回 MO 工具箱</a>
+      </div>
+    </header>
+
+    {% if error %}
+      <section class="alert-panel">{{ error }}</section>
+    {% endif %}
+
+    <section class="workspace opinion-workspace">
+      <div class="panel form-panel">
+        <header>
+          <p class="eyebrow">Scan Setup</p>
+          <h1>创建扫描任务</h1>
+        </header>
+
+        <form action="{{ url_for('opinion_scan_generate') }}" method="post" enctype="multipart/form-data" id="opinionForm">
+          <label>
+            <span>扫描模板</span>
+            <select name="template_key" id="templateSelect">
+              {% for key, item in templates.items() %}
+                <option value="{{ key }}" {% if defaults.template_key == key %}selected{% endif %}>{{ item.name }} - {{ item.summary }}</option>
+              {% endfor %}
+            </select>
+          </label>
+
+          <label>
+            <span>产品 / 事件 / 项目名称</span>
+            <input name="target" value="{{ form.target if form else '' }}" placeholder="例如：X100 Ultra / Apple WWDC / Claude Code">
+          </label>
+
+          <div class="control-row">
+            <label>
+              <span>关键词</span>
+              <textarea name="keywords" placeholder="一行一个，或用逗号分隔">{{ form.keywords if form else '' }}</textarea>
+            </label>
+            <label>
+              <span>别名 / 型号 / 英文名</span>
+              <textarea name="aliases" placeholder="比如代号、缩写、海外名称">{{ form.aliases if form else '' }}</textarea>
+            </label>
+          </div>
+
+          <label>
+            <span>排除词</span>
+            <input name="excludes" value="{{ form.excludes if form else '' }}" placeholder="同名但无关的品牌、人物、游戏、地名等">
+          </label>
+
+          <section class="source-box">
+            <span class="field-title">来源平台</span>
+            <div class="source-options" id="sourceOptions">
+              {% for source in defaults.sources %}
+                <label class="radio-line">
+                  <input type="checkbox" name="sources" value="{{ source }}" checked>
+                  <span>{{ source }}</span>
+                </label>
+              {% endfor %}
+            </div>
+          </section>
+
+          <div class="control-row">
+            <label>
+              <span>风险词</span>
+              <textarea name="risk_words">{{ form.risk_words if form else defaults.risk_words }}</textarea>
+            </label>
+            <label>
+              <span>主题词</span>
+              <textarea name="topics">{{ form.topics if form else defaults.topics }}</textarea>
+            </label>
+          </div>
+
+          <label>
+            <span>时间范围备注</span>
+            <input name="time_range" value="{{ form.time_range if form else '' }}" placeholder="近 24 小时 / 近 7 天 / 2026-05-01 至 2026-05-15">
+          </label>
+
+          <section class="source-box">
+            <span class="field-title">输入内容</span>
+            <div class="browser-assist">
+              <div>
+                <strong>浏览器辅助采集</strong>
+                <small>先在本机 Chrome/Safari 打开并登录目标平台搜索页，再从这里读取当前标签页。</small>
+              </div>
+              <div class="browser-assist-actions">
+                <button type="button" id="captureChrome">采集 Chrome 当前标签页</button>
+                <button type="button" id="captureSafari">采集 Safari 当前标签页</button>
+                <button type="button" id="loadBrowserCaptures">载入最近采集</button>
+              </div>
+              <small id="browserCaptureStatus">只读取你当前打开的标签页文本和链接，不自动翻页。Chrome 可能需要开启 View > Developer > Allow JavaScript from Apple Events。</small>
+            </div>
+            <label>
+              <span>粘贴内容</span>
+              <textarea class="tall-textarea" name="pasted_content" placeholder="每条内容用空行分隔。可包含标题、原文链接、正文摘要。">{{ form.pasted_content if form else '' }}</textarea>
+            </label>
+            <label>
+              <span>链接列表</span>
+              <textarea name="urls" placeholder="一行一个 URL。可勾选下方选项尝试抓取公开网页标题和正文。">{{ form.urls if form else '' }}</textarea>
+            </label>
+            <label>
+              <span>CSV 导入</span>
+              <input type="file" name="csv_file" accept=".csv,text/csv">
+              <small>支持列名：title/标题、content/正文、url/链接、source/平台、author/作者、published_at/发布时间。</small>
+            </label>
+            <label class="check-line">
+              <input type="checkbox" name="fetch_urls" value="1" {% if form and form.fetch_urls %}checked{% endif %}>
+              <span>尝试读取公开网页内容</span>
+            </label>
+            <label class="check-line">
+              <input type="checkbox" name="use_ai" value="1" {% if form and form.use_ai %}checked{% endif %}>
+              <span>使用后台模型润色聚合报告</span>
+            </label>
+          </section>
+
+          <button type="submit" id="submitScan">生成扫描报告</button>
+        </form>
+      </div>
+
+      <aside class="panel jobs-panel opinion-result-panel">
+        <div class="jobs-header">
+          <h2>扫描结果</h2>
+          {% if result %}
+            <a class="admin-entry" href="{{ url_for('raw_file', filename='opinion_scan/' ~ result.job_id ~ '/report.md') }}">打开 Markdown</a>
+          {% endif %}
+        </div>
+
+        {% if result %}
+          <div class="metric-grid">
+            <div class="metric-card">
+              <span>输入内容</span>
+              <strong>{{ result.meta.total_items }}</strong>
+            </div>
+            <div class="metric-card">
+              <span>相关内容</span>
+              <strong>{{ result.meta.relevant_items }}</strong>
+            </div>
+            <div class="metric-card">
+              <span>高风险</span>
+              <strong>{{ result.meta.high_risk_items }}</strong>
+            </div>
+          </div>
+          <pre class="report-preview">{{ result.report }}</pre>
+        {% else %}
+          <p class="muted">先填入扫描对象和若干链接/文本。第一版不会自动硬抓国内平台，重点是把已有材料快速去重、归类并生成报告。</p>
+          <div class="hint-list">
+            <strong>建议起步方式</strong>
+            <span>1. 从平台搜索页复制 10-30 条代表性链接或文本。</span>
+            <span>2. 上传已有舆情平台导出的 CSV。</span>
+            <span>3. 生成报告后复核“高优先级内容”和数据采集建议。</span>
+          </div>
+        {% endif %}
+      </aside>
+    </section>
+
+    <div class="scan-progress" id="scanProgress" hidden>
+      <div class="scan-progress-card">
+        <div class="scan-spinner" aria-hidden="true"></div>
+        <strong>正在生成扫描报告</strong>
+        <span id="scanProgressText">正在整理输入内容、去重、打标签并生成 Markdown 报告...</span>
+        <div class="scan-progress-track">
+          <div class="scan-progress-bar"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const templateData = {{ templates | tojson }};
+    const templateSelect = document.getElementById("templateSelect");
+    const sourceOptions = document.getElementById("sourceOptions");
+    const riskWords = document.querySelector("textarea[name='risk_words']");
+    const topics = document.querySelector("textarea[name='topics']");
+    const opinionForm = document.getElementById("opinionForm");
+    const submitScan = document.getElementById("submitScan");
+    const scanProgress = document.getElementById("scanProgress");
+    const scanProgressText = document.getElementById("scanProgressText");
+    const pastedContent = document.querySelector("textarea[name='pasted_content']");
+    const captureChrome = document.getElementById("captureChrome");
+    const captureSafari = document.getElementById("captureSafari");
+    const loadBrowserCaptures = document.getElementById("loadBrowserCaptures");
+    const browserCaptureStatus = document.getElementById("browserCaptureStatus");
+
+    function renderSources(templateKey) {
+      const selected = templateData[templateKey];
+      if (!selected) return;
+      sourceOptions.innerHTML = "";
+      selected.sources.forEach((source) => {
+        const label = document.createElement("label");
+        label.className = "radio-line";
+        label.innerHTML = `<input type="checkbox" name="sources" value="${source}" checked><span>${source}</span>`;
+        sourceOptions.appendChild(label);
+      });
+      riskWords.value = selected.risk_words.join("\n");
+      topics.value = selected.topics.join("\n");
+    }
+
+    templateSelect.addEventListener("change", () => renderSources(templateSelect.value));
+
+    async function captureActiveBrowser(browser, button) {
+      button.disabled = true;
+      browserCaptureStatus.textContent = `正在读取 ${browser === "chrome" ? "Chrome" : "Safari"} 当前标签页...`;
+      try {
+        const response = await fetch("/api/opinion-scan/capture-active-browser", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ browser }),
+        });
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "采集失败");
+        browserCaptureStatus.textContent = `已采集：${data.capture.title || data.capture.url || "当前标签页"}`;
+      } catch (error) {
+        browserCaptureStatus.textContent = `采集失败：${error.message}`;
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    captureChrome.addEventListener("click", () => captureActiveBrowser("chrome", captureChrome));
+    captureSafari.addEventListener("click", () => captureActiveBrowser("safari", captureSafari));
+
+    loadBrowserCaptures.addEventListener("click", async () => {
+      loadBrowserCaptures.disabled = true;
+      browserCaptureStatus.textContent = "正在读取最近浏览器采集...";
+      try {
+        const response = await fetch("/api/opinion-scan/browser-captures");
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "读取失败");
+        if (!data.pasted_content) {
+          browserCaptureStatus.textContent = "还没有浏览器采集内容。先在目标平台页面点击书签。";
+          return;
+        }
+        const current = pastedContent.value.trim();
+        pastedContent.value = current ? `${current}\n\n${data.pasted_content}` : data.pasted_content;
+        browserCaptureStatus.textContent = `已载入 ${data.captures.length} 次浏览器采集。`;
+      } catch (error) {
+        browserCaptureStatus.textContent = `读取失败：${error.message}`;
+      } finally {
+        loadBrowserCaptures.disabled = false;
+      }
+    });
+
+    opinionForm.addEventListener("submit", () => {
+      submitScan.disabled = true;
+      submitScan.textContent = "生成中...";
+      scanProgress.hidden = false;
+      const messages = [
+        "正在读取粘贴文本、链接和 CSV...",
+        "正在去重并识别相关内容...",
+        "正在匹配风险词、主题词和情绪信号...",
+        "正在生成可追溯的 Markdown 报告...",
+      ];
+      let index = 0;
+      scanProgressText.textContent = messages[index];
+      window.setInterval(() => {
+        index = Math.min(index + 1, messages.length - 1);
+        scanProgressText.textContent = messages[index];
+      }, 1800);
+    });
+  </script>
+</body>
+</html>

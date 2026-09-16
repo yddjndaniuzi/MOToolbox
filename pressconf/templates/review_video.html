@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MOtoolbox 评测视频分析</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='web.css') }}">
+</head>
+<body>
+  <main class="derivative-shell">
+    <header class="toolbox-header">
+      <div>
+        <p class="eyebrow">MO Toolbox</p>
+        <h1>MO 工具箱</h1>
+        <p class="muted">发布会简报、副产物生成、媒体反馈、评测视频分析和手机参数速算，一起放在这里。</p>
+      </div>
+      <div class="entry-links">
+        <button type="button" class="clear-session-button" id="clearSessionButton">清除 Session</button>
+        <a class="admin-entry" href="{{ url_for('module_history', module='review_video') }}">历史回溯</a>
+        <a class="admin-entry" href="{{ url_for('admin') }}">后台控制台</a>
+      </div>
+    </header>
+
+    <nav class="tool-tabs" aria-label="MO 工具模块">
+      <a class="tool-tab" href="{{ url_for('index') }}">
+        <strong>发布会简报</strong>
+        <span>视频采集、关键帧、简报精加工</span>
+      </a>
+      <a class="tool-tab" href="{{ url_for('derivatives') }}">
+        <strong>副产物生成</strong>
+        <span>评测指南、新闻稿、二次加工</span>
+      </a>
+      <a class="tool-tab" href="{{ url_for('feedback') }}">
+        <strong>媒体反馈</strong>
+        <span>问卷表单、观点归纳、风险提示</span>
+      </a>
+      <a class="tool-tab active" href="{{ url_for('review_video') }}">
+        <strong>评测视频分析</strong>
+        <span>逐字稿、情感倾向、媒体金句</span>
+      </a>
+      <a class="tool-tab" href="{{ url_for('calculator') }}">
+        <strong>MO 速算器</strong>
+        <span>屏幕、影像参数换算</span>
+      </a>
+    </nav>
+
+    <header class="result-header derivative-header">
+      <div>
+        <h1>评测视频分析</h1>
+        <p class="muted">从本地评测视频或在线视频链接获取逐字稿，判断媒体情感倾向，提炼正负面观点和可引用金句。</p>
+      </div>
+      <div class="stats">
+        <span>Step 1 抓字幕/ASR</span>
+        <span>Step 2 理解观点</span>
+        <span>Step 3 输出报告</span>
+      </div>
+    </header>
+
+    <section class="derivative-grid">
+      <section class="panel derivative-inputs">
+        <div class="section-title">
+          <p class="eyebrow">Inputs</p>
+          <h2>视频与背景</h2>
+        </div>
+
+        <label>
+          <span>产品 / 项目名称</span>
+          <input id="productName" placeholder="某款旗舰手机 Pro Max">
+        </label>
+
+        <label>
+          <span>媒体 / 账号名称</span>
+          <input id="mediaName" placeholder="例如：某科技媒体 / 某评测账号">
+        </label>
+
+        <label>
+          <span>业务领域</span>
+          <select id="domainId">
+            <option value="auto">自动识别</option>
+            {% for domain in domains %}
+              <option value="{{ domain.id }}">{{ domain.name }}</option>
+            {% endfor %}
+          </select>
+          <small>用于领域热词、事实类型和帮看判断口径；人工选择优先。</small>
+        </label>
+
+        <label>
+          <span>视频标题</span>
+          <div class="inline-action">
+            <input id="videoTitle" placeholder="留空时会从链接或文件名推断">
+            <button type="button" id="titleLookup">获取标题</button>
+          </div>
+          <small id="titleStatus">在线视频可用 yt-dlp 获取网页标题；本地视频用文件名兜底。</small>
+        </label>
+
+        <section class="source-box">
+          <span class="field-title">视频来源</span>
+          <div class="source-options">
+            <label class="radio-line">
+              <input type="radio" name="source_type" value="local" checked>
+              <span>本地视频</span>
+            </label>
+            <label class="radio-line">
+              <input type="radio" name="source_type" value="online">
+              <span>在线视频链接</span>
+            </label>
+          </div>
+
+          <div class="source-panel" data-source-panel="local">
+            <label>
+              <span>本机视频路径</span>
+              <input id="videoPath" placeholder="/Users/mi/Downloads/review.mp4">
+              <small>适合已经下载好的评测视频、录屏或媒体素材。</small>
+            </label>
+            <label>
+              <span>或上传视频</span>
+              <input id="videoFile" type="file" accept="video/*">
+              <small>大文件更推荐填本机路径，上传会复制到任务目录。</small>
+            </label>
+          </div>
+
+          <div class="source-panel" data-source-panel="online">
+            <label>
+              <span>在线视频 URL</span>
+              <input id="onlineUrl" placeholder="https://www.youtube.com/watch?v=...">
+              <small>优先抓 SRT/VTT 字幕；没有字幕时再用 yt-dlp 下载视频并 ASR。</small>
+            </label>
+          </div>
+        </section>
+
+        <label>
+          <span>补充要求</span>
+          <textarea id="additionalInstruction" rows="5" placeholder="例如：重点关注影像和续航评价；金句按可外发/仅内部参考分组；负面点给出回应建议。"></textarea>
+        </label>
+
+        <button type="button" id="generateButton">生成评测视频分析</button>
+        <p class="generation-status" id="generationStatus">准备好视频后开始生成。在线视频如果没有字幕，耗时会取决于下载和 ASR。</p>
+      </section>
+
+      <section class="panel prompt-panel">
+        <div class="section-title">
+          <p class="eyebrow">Output</p>
+          <h2>分析报告 Markdown</h2>
+        </div>
+
+        <div class="model-progress" id="modelProgress" hidden>
+          <div class="progress-bar"><div class="progress-fill" id="modelProgressFill"></div></div>
+          <p id="modelProgressMessage">等待生成</p>
+        </div>
+
+        <section class="prompt-output active">
+          <div class="output-actions">
+            <h3>生成结果</h3>
+            <div class="feedback-actions">
+              <a href="#" id="previewResult" hidden>预览</a>
+              <a href="#" id="transcriptResult" hidden>逐字稿查阅</a>
+              <button type="button" id="copyResult">复制</button>
+            </div>
+          </div>
+          <textarea id="resultText" rows="28" placeholder="生成完成后会显示在这里。"></textarea>
+        </section>
+      </section>
+    </section>
+  </main>
+
+  <script src="{{ url_for('static', filename='ui.js') }}"></script>
+  <script>
+    const sourceRadios = Array.from(document.querySelectorAll("input[name='source_type']"));
+    const sourcePanels = Array.from(document.querySelectorAll("[data-source-panel]"));
+    const generateButton = document.getElementById("generateButton");
+    const generationStatus = document.getElementById("generationStatus");
+    const modelProgress = document.getElementById("modelProgress");
+    const modelProgressFill = document.getElementById("modelProgressFill");
+    const modelProgressMessage = document.getElementById("modelProgressMessage");
+    const resultText = document.getElementById("resultText");
+    const previewResult = document.getElementById("previewResult");
+    const transcriptResult = document.getElementById("transcriptResult");
+    const titleLookup = document.getElementById("titleLookup");
+    const titleStatus = document.getElementById("titleStatus");
+    const clearSessionButton = document.getElementById("clearSessionButton");
+    let activeJob = null;
+    let sessionEpoch = 0;
+    const draftKey = "motoolbox:review-video:draft";
+    const activeJobKey = "motoolbox:review-video:active-job";
+
+    if (window.location.protocol === "file:") {
+      const serverUrl = "http://127.0.0.1:5058/review-video";
+      generationStatus.innerHTML = `当前是直接打开模板文件，后端接口不会工作。请从 <a href="${serverUrl}">${serverUrl}</a> 打开。`;
+      modelProgress.hidden = false;
+      modelProgressFill.style.width = "0%";
+      modelProgressMessage.textContent = "等待从 Web 服务打开页面";
+      generateButton.disabled = true;
+      titleLookup.disabled = true;
+    }
+
+    function selectedSourceType() {
+      return document.querySelector("input[name='source_type']:checked")?.value || "local";
+    }
+
+    function syncSourcePanels() {
+      const selected = selectedSourceType();
+      sourcePanels.forEach((panel) => {
+        const isActive = panel.dataset.sourcePanel === selected;
+        panel.hidden = !isActive;
+        panel.querySelectorAll("input").forEach((field) => {
+          field.disabled = !isActive;
+        });
+      });
+    }
+
+    sourceRadios.forEach((radio) => radio.addEventListener("change", syncSourcePanels));
+    syncSourcePanels();
+
+    titleLookup.addEventListener("click", lookupTitle);
+    generateButton.addEventListener("click", startGeneration);
+    ["productName", "mediaName", "videoTitle", "additionalInstruction", "videoPath", "onlineUrl"].forEach((id) => {
+      document.getElementById(id).addEventListener("input", saveDraft);
+    });
+    sourceRadios.forEach((radio) => radio.addEventListener("change", saveDraft));
+    resultText.addEventListener("input", saveDraft);
+    document.getElementById("copyResult").addEventListener("click", async () => {
+      await navigator.clipboard.writeText(resultText.value);
+      generationStatus.textContent = "已复制生成结果。";
+    });
+
+    async function lookupTitle() {
+      const requestEpoch = sessionEpoch;
+      titleStatus.textContent = "正在获取标题...";
+      const data = new FormData();
+      data.append("source_type", selectedSourceType());
+      data.append("online_url", document.getElementById("onlineUrl").value);
+      data.append("video_path", document.getElementById("videoPath").value);
+      const file = document.getElementById("videoFile").files[0];
+      if (file) data.append("video_file", file);
+      try {
+        const response = await fetch("/api/title", { method: "POST", body: data });
+        const payload = await response.json();
+        if (requestEpoch !== sessionEpoch) return;
+        if (!response.ok || !payload.ok) throw new Error(payload.error || "获取失败");
+        document.getElementById("videoTitle").value = payload.title;
+        titleStatus.textContent = "已获取标题。";
+      } catch (error) {
+        if (requestEpoch !== sessionEpoch) return;
+        titleStatus.textContent = error.message || "获取失败";
+      }
+    }
+
+    async function startGeneration() {
+      const requestEpoch = sessionEpoch;
+      const data = new FormData();
+      data.append("source_type", selectedSourceType());
+      data.append("product_name", document.getElementById("productName").value);
+      data.append("media_name", document.getElementById("mediaName").value);
+      data.append("video_title", document.getElementById("videoTitle").value);
+      data.append("additional_instruction", document.getElementById("additionalInstruction").value);
+      data.append("domain_id", document.getElementById("domainId").value);
+      data.append("video_path", document.getElementById("videoPath").value);
+      data.append("online_url", document.getElementById("onlineUrl").value);
+      const file = document.getElementById("videoFile").files[0];
+      if (file) data.append("video_file", file);
+
+      resultText.value = "";
+      previewResult.hidden = true;
+      previewResult.removeAttribute("href");
+      transcriptResult.hidden = true;
+      transcriptResult.removeAttribute("href");
+      saveDraft();
+      modelProgress.hidden = false;
+      modelProgressFill.style.width = "5%";
+      modelProgressMessage.textContent = "提交生成任务";
+      generationStatus.textContent = "正在提交任务。";
+      generateButton.disabled = true;
+      generateButton.textContent = "生成中";
+
+      try {
+        const response = await fetch("/api/review-video/generate", { method: "POST", body: data });
+        const payload = await response.json();
+        if (requestEpoch !== sessionEpoch) return;
+        if (!response.ok || !payload.ok) throw new Error(payload.error || "提交失败");
+        activeJob = payload.job_id;
+        localStorage.setItem(activeJobKey, payload.job_id);
+        saveDraft();
+        pollJob(payload.job_id);
+      } catch (error) {
+        if (requestEpoch !== sessionEpoch) return;
+        generationStatus.textContent = error.message || "提交失败";
+        modelProgressMessage.textContent = generationStatus.textContent;
+        generateButton.disabled = false;
+        generateButton.textContent = "重试生成";
+      }
+    }
+
+    async function pollJob(jobId) {
+      try {
+        const response = await fetch(`/api/review-video/job/${jobId}`);
+        const job = await response.json();
+        if (activeJob !== jobId) return;
+        modelProgressFill.style.width = `${job.percent || 0}%`;
+        modelProgressMessage.textContent = job.message || "处理中";
+        generationStatus.textContent = job.message || "处理中";
+        if (job.preview && !job.result) {
+          resultText.value = job.preview;
+          saveDraft();
+        }
+        if (job.status === "done") {
+          resultText.value = job.result || "";
+          if (job.preview_url) {
+            previewResult.href = job.preview_url;
+            previewResult.hidden = false;
+          }
+          if (job.transcript_url) {
+            transcriptResult.href = job.transcript_url;
+            transcriptResult.hidden = false;
+          }
+          modelProgressFill.style.width = "100%";
+          generationStatus.textContent = job.message || "生成完成";
+          generateButton.disabled = false;
+          generateButton.textContent = "重新生成评测视频分析";
+          localStorage.removeItem(activeJobKey);
+          saveDraft();
+          return;
+        }
+        if (job.status === "error") {
+          generationStatus.textContent = job.message || "生成失败";
+          modelProgressMessage.textContent = generationStatus.textContent;
+          generateButton.disabled = false;
+          generateButton.textContent = "重试生成";
+          localStorage.removeItem(activeJobKey);
+          saveDraft();
+          return;
+        }
+        if (job.status === "missing") {
+          generationStatus.textContent = "上次生成任务已不在内存中，可从历史回溯查看已完成的 Markdown。";
+          modelProgressMessage.textContent = generationStatus.textContent;
+          generateButton.disabled = false;
+          generateButton.textContent = "生成评测视频分析";
+          localStorage.removeItem(activeJobKey);
+          return;
+        }
+        setTimeout(() => pollJob(jobId), 1500);
+      } catch (error) {
+        generationStatus.textContent = error.message || "查询状态失败";
+        modelProgressMessage.textContent = generationStatus.textContent;
+        generateButton.disabled = false;
+        generateButton.textContent = "重试生成";
+      }
+    }
+
+    function saveDraft() {
+      const draft = {
+        sourceType: selectedSourceType(),
+        productName: document.getElementById("productName").value,
+        mediaName: document.getElementById("mediaName").value,
+        videoTitle: document.getElementById("videoTitle").value,
+        additionalInstruction: document.getElementById("additionalInstruction").value,
+        videoPath: document.getElementById("videoPath").value,
+        onlineUrl: document.getElementById("onlineUrl").value,
+        result: resultText.value,
+        previewUrl: previewResult.hidden ? "" : previewResult.href,
+        transcriptUrl: transcriptResult.hidden ? "" : transcriptResult.href
+      };
+      localStorage.setItem(draftKey, JSON.stringify(draft));
+    }
+
+    function restoreDraft() {
+      const draft = JSON.parse(localStorage.getItem(draftKey) || "{}");
+      if (draft.sourceType) {
+        sourceRadios.forEach((radio) => {
+          radio.checked = radio.value === draft.sourceType;
+        });
+      }
+      document.getElementById("productName").value = draft.productName || "";
+      document.getElementById("mediaName").value = draft.mediaName || "";
+      document.getElementById("videoTitle").value = draft.videoTitle || "";
+      document.getElementById("additionalInstruction").value = draft.additionalInstruction || "";
+      document.getElementById("videoPath").value = draft.videoPath || "";
+      document.getElementById("onlineUrl").value = draft.onlineUrl || "";
+      resultText.value = draft.result || "";
+      if (draft.previewUrl) {
+        previewResult.href = draft.previewUrl;
+        previewResult.hidden = false;
+      }
+      if (draft.transcriptUrl) {
+        transcriptResult.href = draft.transcriptUrl;
+        transcriptResult.hidden = false;
+      }
+      syncSourcePanels();
+      activeJob = localStorage.getItem(activeJobKey);
+      if (activeJob) {
+        modelProgress.hidden = false;
+        generateButton.disabled = true;
+        generateButton.textContent = "生成中";
+        pollJob(activeJob);
+      }
+    }
+
+    clearSessionButton.addEventListener("click", async () => {
+      const confirmed = await MOUI.confirm(
+        "将清空当前输入、上传视频、生成结果和任务关联。历史回溯中的文件不会删除。",
+        {title: "清除当前 Session？", confirmText: "一键清除", danger: true}
+      );
+      if (!confirmed) return;
+
+      sessionEpoch += 1;
+      activeJob = null;
+      localStorage.removeItem(draftKey);
+      localStorage.removeItem(activeJobKey);
+      ["productName", "mediaName", "videoTitle", "additionalInstruction", "videoPath", "onlineUrl", "videoFile"].forEach((id) => {
+        document.getElementById(id).value = "";
+      });
+      document.getElementById("domainId").value = "auto";
+      sourceRadios.forEach((radio) => { radio.checked = radio.value === "local"; });
+      syncSourcePanels();
+      resultText.value = "";
+      previewResult.hidden = true;
+      previewResult.removeAttribute("href");
+      transcriptResult.hidden = true;
+      transcriptResult.removeAttribute("href");
+      titleStatus.textContent = "在线视频可用 yt-dlp 获取网页标题；本地视频用文件名兜底。";
+      modelProgress.hidden = true;
+      modelProgressFill.style.width = "0%";
+      modelProgressMessage.textContent = "等待生成";
+      generateButton.disabled = false;
+      generateButton.textContent = "生成评测视频分析";
+      generationStatus.textContent = "Session 已清除，下一次生成将从空白上下文开始。";
+      MOUI.toast("当前 Session 已清除", "success");
+    });
+
+    restoreDraft();
+  </script>
+</body>
+</html>

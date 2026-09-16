@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ display_name }} · 简报基础稿</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='web.css') }}">
+</head>
+<body>
+  <main class="brief-shell">
+    <header class="result-header">
+      <div>
+        <a class="back-link" href="{{ url_for('result', slug=slug) }}">返回图包</a>
+        <h1>{{ display_name }} · 简报基础稿</h1>
+      </div>
+      <div class="stats">
+        {% if brief_content %}
+          <a href="{{ url_for('raw_file', filename=slug + '/brief_base.md') }}">Markdown</a>
+        {% endif %}
+      </div>
+    </header>
+
+    <section class="brief-workspace">
+      <form class="panel brief-form" action="{{ url_for('brief_generate', slug=slug) }}" method="post" id="briefForm">
+        <h2>自动获取转写</h2>
+        <div class="brief-source">
+          <span>来源类型</span>
+          <strong>{{ (manifest.get("source") or {}).get("type") or ("live" if manifest.get("stats", {}).get("live") else "local") }}</strong>
+        </div>
+        {% set domain_meta = manifest.get("domain") or {} %}
+        <div class="brief-source">
+          <span>领域 / 任务</span>
+          <strong>{{ domain_meta.get("resolved") or domain_meta.get("requested") or "auto" }} · {{ manifest.get("task_type") or "business_review" }}</strong>
+        </div>
+        <ol class="brief-flow">
+          <li>本地视频 / 上传文件：直接从本地视频跑 ASR。</li>
+          <li>在线视频：优先用 yt-dlp 抓字幕，抓不到再对下载后的视频跑 ASR。</li>
+          <li>直播流：采图时同步录制，生成简报时对录制文件跑 ASR。</li>
+        </ol>
+        {% if transcript_meta %}
+          <p class="muted">当前转写：{{ transcript_meta.get("method") }} · {{ transcript_meta.get("path") }}</p>
+        {% endif %}
+        <p class="muted">
+          {% if has_coverage_report %}<a href="{{ url_for('raw_file', filename=slug + '/coverage_report.json') }}">覆盖审计</a>{% endif %}
+          {% if has_fact_ledger %}{% if has_coverage_report %} · {% endif %}<a href="{{ url_for('raw_file', filename=slug + '/fact_ledger.json') }}">事实账本</a>{% endif %}
+        </p>
+        <div
+          class="brief-status"
+          id="briefStatus"
+          {% if brief_job.get("status") not in ["running", "error"] %}hidden{% endif %}
+        >
+          <div class="progress-track">
+            <div class="progress-fill" id="briefProgress" style="width: {{ brief_job.get("percent", 0) }}%"></div>
+          </div>
+          <p id="briefMessage">{{ brief_job.get("message", "") }}</p>
+        </div>
+        {% if error %}
+          <p class="brief-error">{{ error }}</p>
+        {% endif %}
+        <button type="submit" id="briefSubmit" {% if brief_job.get("status") == "running" %}disabled{% endif %}>
+          {% if brief_job.get("status") == "running" %}生成中{% else %}获取转写并生成基础稿{% endif %}
+        </button>
+      </form>
+
+      <section class="panel brief-preview">
+        <div class="preview-header">
+          <h2>{% if refined_content %}精加工结果{% else %}生成结果{% endif %}</h2>
+          <div class="preview-actions">
+            {% if refined_content %}
+              <a href="{{ url_for('raw_file', filename=slug + '/brief_refined.md') }}">精加工 Markdown</a>
+              <a href="{{ url_for('brief_preview', slug=slug, variant='refined') }}">图文预览</a>
+            {% elif brief_content %}
+              <a href="{{ url_for('brief_preview', slug=slug, variant='base') }}">图文预览</a>
+            {% endif %}
+          </div>
+          {% if brief_content %}
+            <button type="button" id="copyBrief">复制 Markdown</button>
+          {% endif %}
+        </div>
+        {% if brief_content %}
+          <form action="{{ url_for('refine_generate', slug=slug) }}" method="post" id="refineForm" class="brief-refine-form">
+            <label class="refine-instruction">
+              <span>二次加工 / 自定义 prompt</span>
+              <textarea id="refineInstruction" name="user_instruction" rows="4" placeholder="例如：重点强化价格策略和竞品判断；发布会详情改成老板速读；保留技术名英文；压缩到 1200 字。">{{ refine_job.get("user_instruction") or refine_meta.get("user_instruction", "") }}</textarea>
+            </label>
+            {% set current_tier = refine_job.get("brief_tier") or "" %}
+            <label>
+              <span>报告档位（默认自动：按内容量判定{% if refine_meta.get("info_tier") %}，上次判定为 {{ refine_meta.get("info_tier") }}{% endif %}）</span>
+              <select name="brief_tier" id="briefTier">
+                <option value="" {% if not current_tier %}selected{% endif %}>自动判定</option>
+                <option value="full" {% if current_tier == "full" %}selected{% endif %}>完整报告 full</option>
+                <option value="lite" {% if current_tier == "lite" %}selected{% endif %}>信息提要 lite</option>
+                <option value="nano" {% if current_tier == "nano" %}selected{% endif %}>业务快报 nano</option>
+              </select>
+            </label>
+            {% if (manifest.get("domain") or {}).get("resolved") in ["", "smartphone"] %}
+            {% set current_format = refine_job.get("event_format") or "" %}
+            <label>
+              <span>产品类型（默认自动：按名称和转写价格话术判定{% if refine_meta.get("event_format") %}，上次判定为 {{ "纯软件发布" if refine_meta.get("event_format") == "software" else "硬件发布" }}{% endif %}）</span>
+              <select name="event_format" id="eventFormat">
+                <option value="" {% if not current_format %}selected{% endif %}>自动判定</option>
+                <option value="hardware" {% if current_format == "hardware" %}selected{% endif %}>硬件发布（全模块含价格/参数表）</option>
+                <option value="software" {% if current_format == "software" %}selected{% endif %}>纯软件发布（无价格/参数表模块）</option>
+              </select>
+            </label>
+            {% endif %}
+            <button type="submit" id="refineSubmit" {% if refine_job.get("status") == "running" %}disabled{% endif %}>
+              {% if refine_job.get("status") == "running" %}精加工中{% else %}按要求精加工{% endif %}
+            </button>
+          </form>
+        {% endif %}
+        <div
+          class="brief-status"
+          id="refineStatus"
+          {% if refine_job.get("status") not in ["running", "error"] %}hidden{% endif %}
+        >
+          <div class="progress-track">
+            <div class="progress-fill" id="refineProgress" style="width: {{ refine_job.get("percent", 0) }}%"></div>
+          </div>
+          <p id="refineMessage">{{ refine_job.get("message", "") }}</p>
+        </div>
+        <p class="muted">当前活跃模型：{{ active_refine_model.get("model") }} · {{ active_refine_model.get("provider") }}</p>
+        {% if refine_job.get("model") %}
+          <p class="muted">本次精加工任务：{{ refine_job.get("model") }} · {{ refine_job.get("provider") }}</p>
+        {% endif %}
+        {% if refine_meta %}
+          <p class="muted">上次精加工结果：{{ refine_meta.get("model") }} · {{ refine_meta.get("output") }}</p>
+        {% endif %}
+        {% if refined_content %}
+          <pre id="briefContent">{{ refined_content }}</pre>
+        {% elif brief_content %}
+          <pre id="briefContent">{{ brief_content }}</pre>
+        {% else %}
+          <p class="muted">获取转写后，会在这里生成发布会详情基础稿。</p>
+        {% endif %}
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const slug = "{{ slug }}";
+    const form = document.getElementById("briefForm");
+    const submit = document.getElementById("briefSubmit");
+    const statusBox = document.getElementById("briefStatus");
+    const progress = document.getElementById("briefProgress");
+    const message = document.getElementById("briefMessage");
+    const refineForm = document.getElementById("refineForm");
+    const refineSubmit = document.getElementById("refineSubmit");
+    const refineStatus = document.getElementById("refineStatus");
+    const refineProgress = document.getElementById("refineProgress");
+    const refineMessage = document.getElementById("refineMessage");
+    const copyBrief = document.getElementById("copyBrief");
+    const activeRefineModel = {{ active_refine_model.get("model") | tojson }};
+
+    form?.addEventListener("submit", () => {
+      submit.disabled = true;
+      submit.textContent = "生成中";
+      statusBox.hidden = false;
+      progress.style.width = "3%";
+      message.textContent = "任务已开始";
+    });
+
+    async function pollBriefJob() {
+      const response = await fetch(`/api/result/${slug}/brief`);
+      const job = await response.json();
+      if (job.status === "running") {
+        statusBox.hidden = false;
+        submit.disabled = true;
+        submit.textContent = "生成中";
+        progress.style.width = `${job.percent || 0}%`;
+        message.textContent = job.message || "处理中";
+        window.setTimeout(pollBriefJob, 1800);
+        return;
+      }
+      if (job.status === "done") {
+        if (!document.getElementById("briefContent")) {
+          window.location.reload();
+          return;
+        }
+        statusBox.hidden = false;
+        progress.style.width = "100%";
+        message.textContent = job.message || "完成";
+        submit.disabled = false;
+        submit.textContent = "重新生成基础稿";
+        return;
+      }
+      if (job.status === "error") {
+        statusBox.hidden = false;
+        progress.style.width = "100%";
+        message.textContent = job.message || "生成失败";
+        submit.disabled = false;
+        submit.textContent = "重试";
+      }
+    }
+
+    if (!statusBox.hidden) {
+      pollBriefJob();
+    }
+
+    refineForm?.addEventListener("submit", () => {
+      refineSubmit.disabled = true;
+      refineSubmit.textContent = "精加工中";
+      refineStatus.hidden = false;
+      refineProgress.style.width = "8%";
+      refineMessage.textContent = `${activeRefineModel} 精加工中`;
+    });
+
+    async function pollRefineJob() {
+      const response = await fetch(`/api/result/${slug}/refine`);
+      const job = await response.json();
+      if (job.status === "running") {
+        refineStatus.hidden = false;
+        refineSubmit.disabled = true;
+        refineSubmit.textContent = "精加工中";
+        refineProgress.style.width = `${job.percent || 0}%`;
+        refineMessage.textContent = job.message || "处理中";
+        window.setTimeout(pollRefineJob, 1800);
+        return;
+      }
+      if (job.status === "done") {
+        window.location.reload();
+        return;
+      }
+      if (job.status === "error") {
+        refineStatus.hidden = false;
+        refineProgress.style.width = "100%";
+        refineMessage.textContent = job.message || "精加工失败";
+        refineSubmit.disabled = false;
+        refineSubmit.textContent = "重试精加工";
+      }
+    }
+
+    if (refineStatus && !refineStatus.hidden) {
+      pollRefineJob();
+    }
+
+    copyBrief?.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(document.getElementById("briefContent").textContent);
+    });
+  </script>
+</body>
+</html>

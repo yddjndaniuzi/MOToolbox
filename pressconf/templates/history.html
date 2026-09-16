@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ module_title }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='web.css') }}">
+</head>
+<body>
+  <main class="shell">
+    <header class="result-header">
+      <div>
+        <a class="back-link" href="{{ module_home }}">返回模块</a>
+        <h1>{{ module_title }}</h1>
+        <p class="muted">这里会列出已经落盘的 Markdown 结果，切走页面也不怕，回来还能捞到。</p>
+      </div>
+      <div class="stats">
+        <a href="{{ url_for('index') }}">工具箱首页</a>
+      </div>
+    </header>
+
+    <section class="panel history-panel">
+      {% if entries %}
+        <div class="history-list">
+          {% for entry in entries %}
+            <article class="history-row">
+              <div>
+                <h2>{{ entry.title }}</h2>
+                <p class="muted">{{ entry.updated }} · {{ entry.id }}</p>
+              </div>
+              <div class="history-actions">
+                <a href="{{ entry.preview_url }}">预览</a>
+                <a href="{{ entry.markdown_url }}">Markdown</a>
+                <button type="button" class="obsidian-history-export" data-payload='{{ entry.obsidian_payload | tojson }}'>写入 Obsidian</button>
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="muted">还没有历史 Markdown。下一次生成完成后，会自动出现在这里。</p>
+      {% endif %}
+    </section>
+
+    <div class="preview-job" id="obsidianStatus" hidden>
+      <p id="obsidianMessage">等待写入 Obsidian</p>
+    </div>
+  </main>
+
+  <script>
+    const obsidianStatus = document.getElementById("obsidianStatus");
+    const obsidianMessage = document.getElementById("obsidianMessage");
+
+    document.querySelectorAll(".obsidian-history-export").forEach((button) => {
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        obsidianStatus.hidden = false;
+        obsidianMessage.textContent = "正在写入绑定的 Obsidian vault...";
+        try {
+          const response = await fetch("/api/obsidian/export", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: button.dataset.payload
+          });
+          const payload = await response.json();
+          if (!response.ok || !payload.ok) throw new Error(payload.error || "写入失败");
+          obsidianMessage.textContent = `已写入：${payload.path}`;
+        } catch (error) {
+          obsidianMessage.textContent = error.message || "写入失败";
+        } finally {
+          button.disabled = false;
+        }
+      });
+    });
+  </script>
+</body>
+</html>

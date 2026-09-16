@@ -1,0 +1,11 @@
+{
+  "name": "大模型/AI",
+  "description": "基础模型、Agent、多模态与 AI 平台发布会",
+  "keywords": ["大模型", "模型", "人工智能", "多模态", "推理", "训练", "智能体", "上下文"],
+  "strong_keywords": ["chatgpt", "gpt-", "openai", "llm", "token", "benchmark", "agent", "moe", "rag", "api价格", "开源权重"],
+  "sections": ["模型定位", "能力升级", "Benchmark 与比较条件", "推理成本与 API", "Agent 与多模态", "开源及部署", "现场 Demo", "商业化判断", "待复现事项", "发布会详情"],
+  "fact_types": ["model", "version", "benchmark", "context_window", "latency", "throughput", "api_price", "license", "deployment", "availability"],
+  "hotwords": ["Token", "MoE", "Agent", "RAG", "SFT", "RLHF", "Benchmark", "上下文窗口", "首Token延迟", "吞吐量", "API", "开源权重"],
+  "analyst_role": "基础模型、AI 平台与开发者生态分析师",
+  "guidance": "记录模型版本、测试基线、上下文、推理成本和许可条件；区分官方 benchmark、现场 Demo 与可复现业务效果。"
+}

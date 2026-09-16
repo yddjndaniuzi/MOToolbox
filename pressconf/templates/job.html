@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>采集中 · MOtoolbox</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='web.css') }}">
+  <script src="{{ url_for('static', filename='ui.js') }}"></script>
+</head>
+<body>
+  <main class="job-shell">
+    <section class="panel job-progress">
+      <p class="eyebrow">Capture Job</p>
+      <h1 id="eventName">采集中</h1>
+      <div class="progress-track">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+      <div class="job-meta">
+        <span id="statusText">准备中</span>
+        <span id="countText">0 张</span>
+        <span id="timeText">0:00:00.000</span>
+      </div>
+      <div class="live-pipelines" id="livePipelines" hidden>
+        <div class="pipeline-row">
+          <span class="pipeline-dot"></span>
+          <strong>画面截图</strong>
+          <span id="framePipelineText">等待开始</span>
+        </div>
+        <div class="pipeline-row">
+          <span class="pipeline-dot"></span>
+          <strong>音视频录制</strong>
+          <span id="recordingPipelineText">等待开始</span>
+        </div>
+      </div>
+      <p class="muted" id="messageText">任务正在启动</p>
+      <div class="live-controls" id="liveControls" hidden>
+        <button type="button" data-action="pause">暂停</button>
+        <button type="button" data-action="resume">继续</button>
+        <button type="button" data-action="stop">停止</button>
+      </div>
+      <a class="back-link" href="{{ url_for('index') }}">返回首页</a>
+    </section>
+
+    <section class="panel live-preview" id="livePreviewPanel" hidden>
+      <div class="preview-header">
+        <h2>已抓取帧</h2>
+        <span id="previewCount">0 张</span>
+      </div>
+      <div class="preview-grid" id="previewGrid"></div>
+    </section>
+  </main>
+
+  <script>
+    const jobId = "{{ job_id }}";
+    const progressFill = document.getElementById("progressFill");
+    const statusText = document.getElementById("statusText");
+    const countText = document.getElementById("countText");
+    const timeText = document.getElementById("timeText");
+    const messageText = document.getElementById("messageText");
+    const eventName = document.getElementById("eventName");
+    const liveControls = document.getElementById("liveControls");
+    const livePreviewPanel = document.getElementById("livePreviewPanel");
+    const livePipelines = document.getElementById("livePipelines");
+    const framePipelineText = document.getElementById("framePipelineText");
+    const recordingPipelineText = document.getElementById("recordingPipelineText");
+    const previewGrid = document.getElementById("previewGrid");
+    const previewCount = document.getElementById("previewCount");
+    let isLiveJob = false;
+    const renderedFrames = new Set();
+    let pollDelay = 900;
+
+    function formatTime(seconds) {
+      const value = Number(seconds || 0);
+      const whole = Math.floor(value);
+      const h = Math.floor(whole / 3600);
+      const m = Math.floor((whole % 3600) / 60);
+      const s = whole % 60;
+      return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    }
+
+    function scheduleNextPoll() {
+      // Back off when the tab is hidden to avoid hammering the server in the background.
+      const delay = document.hidden ? Math.max(pollDelay, 4000) : pollDelay;
+      window.setTimeout(poll, delay);
+    }
+
+    async function poll() {
+      let job;
+      try {
+        const response = await fetch(`/api/job/${jobId}`);
+        job = await response.json();
+        pollDelay = 900;
+      } catch (err) {
+        // Network hiccup: surface once, back off, and keep retrying.
+        pollDelay = Math.min(pollDelay * 2, 8000);
+        messageText.textContent = "连接中断，正在重试…";
+        window.setTimeout(poll, pollDelay);
+        return;
+      }
+      const percent = Math.max(0, Math.min(100, Number(job.percent || 0)));
+      eventName.textContent = job.event_name || "采集中";
+      const isOpenEndedLive = job.source_type === "live" && !Number(job.duration_sec || 0);
+      progressFill.classList.toggle("is-indeterminate", isOpenEndedLive && job.status === "running");
+      progressFill.style.width = isOpenEndedLive && job.status === "running" ? "38%" : `${percent}%`;
+      statusText.textContent = isOpenEndedLive && job.status === "running"
+        ? `${job.status || "running"} · 直播中`
+        : `${job.status || "running"} · ${Math.round(percent)}%`;
+      countText.textContent = `${job.keyframes || 0} 张`;
+      if (isOpenEndedLive) {
+        timeText.textContent = `${formatTime(job.last_timestamp_sec)} / 手动停止`;
+      } else {
+        timeText.textContent = `${formatTime(job.last_timestamp_sec)} / ${formatTime(job.duration_sec)}`;
+      }
+      messageText.textContent = job.message || "";
+      isLiveJob = job.source_type === "live";
+      liveControls.hidden = !isLiveJob || job.status === "done" || job.status === "error";
+      livePreviewPanel.hidden = !isLiveJob;
+      livePipelines.hidden = !isLiveJob;
+      if (isLiveJob) {
+        const stage = job.capture_stage || "live";
+        const recording = job.recording_status || "recording";
+        framePipelineText.textContent = stage === "paused"
+          ? `已暂停，保留 ${job.keyframes || 0} 张`
+          : `采集中，已保留 ${job.keyframes || 0} 张`;
+        recordingPipelineText.textContent = {
+          recording: "录制中，供后续 ASR 使用",
+          stopping: "正在保存录制文件",
+          saved: "已保存录制文件"
+        }[recording] || "录制中，供后续 ASR 使用";
+        pollFrames();
+      }
+
+      if (job.status === "done" && job.result_url) {
+        window.location.href = job.result_url;
+        return;
+      }
+      if (job.status !== "error" && job.status !== "missing") {
+        scheduleNextPoll();
+      }
+    }
+
+    async function pollFrames() {
+      let payload;
+      try {
+        const response = await fetch(`/api/job/${jobId}/frames`);
+        payload = await response.json();
+      } catch (err) {
+        return;
+      }
+      const frames = payload.frames || [];
+      previewCount.textContent = `${frames.length} 张`;
+      // Only append frames we haven't rendered yet — avoids re-downloading the
+      // whole grid every poll and the flicker that came with innerHTML rewrites.
+      const fragment = document.createDocumentFragment();
+      frames.forEach((frame) => {
+        if (renderedFrames.has(frame.name)) return;
+        renderedFrames.add(frame.name);
+        const link = document.createElement("a");
+        link.href = frame.url;
+        link.target = "_blank";
+        link.rel = "noreferrer";
+        const img = document.createElement("img");
+        img.src = frame.url;
+        img.alt = frame.name;
+        img.loading = "lazy";
+        const caption = document.createElement("span");
+        caption.textContent = frame.name;
+        link.append(img, caption);
+        fragment.appendChild(link);
+      });
+      if (fragment.childNodes.length) previewGrid.appendChild(fragment);
+    }
+
+    async function sendControl(action) {
+      const data = new FormData();
+      data.set("action", action);
+      await fetch(`/api/job/${jobId}/control`, { method: "POST", body: data });
+      poll();
+    }
+
+    liveControls.querySelectorAll("button").forEach((button) => {
+      button.addEventListener("click", () => sendControl(button.dataset.action));
+    });
+
+    poll();
+  </script>
+</body>
+</html>

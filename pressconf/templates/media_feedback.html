@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MOtoolbox 媒体反馈</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='web.css') }}">
+</head>
+<body>
+  <main class="derivative-shell">
+    <header class="toolbox-header">
+      <div>
+        <p class="eyebrow">MO Toolbox</p>
+        <h1>MO 工具箱</h1>
+        <p class="muted">发布会简报、副产物生成、媒体反馈、评测视频分析和手机参数速算，一起放在这里。</p>
+      </div>
+      <div class="entry-links">
+        <button type="button" class="clear-session-button" id="clearSessionButton">清除 Session</button>
+        <a class="admin-entry" href="{{ url_for('module_history', module='feedback') }}">历史回溯</a>
+        <a class="admin-entry" href="{{ url_for('admin') }}">后台控制台</a>
+      </div>
+    </header>
+
+    <nav class="tool-tabs" aria-label="MO 工具模块">
+      <a class="tool-tab" href="{{ url_for('index') }}">
+        <strong>发布会简报</strong>
+        <span>视频采集、关键帧、简报精加工</span>
+      </a>
+      <a class="tool-tab" href="{{ url_for('derivatives') }}">
+        <strong>副产物生成</strong>
+        <span>评测指南、新闻稿、二次加工</span>
+      </a>
+      <a class="tool-tab active" href="{{ url_for('feedback') }}">
+        <strong>媒体反馈</strong>
+        <span>问卷表单、观点归纳、风险提示</span>
+      </a>
+      <a class="tool-tab" href="{{ url_for('review_video') }}">
+        <strong>评测视频分析</strong>
+        <span>逐字稿、情感倾向、媒体金句</span>
+      </a>
+      <a class="tool-tab" href="{{ url_for('calculator') }}">
+        <strong>MO 速算器</strong>
+        <span>屏幕、影像参数换算</span>
+      </a>
+    </nav>
+
+    <header class="result-header derivative-header">
+      <div>
+        <h1>媒体反馈生成器</h1>
+        <p class="muted">把媒体沟通会后的问卷原始表单，整理成详实简练、有判断、有证据的反馈文档。</p>
+      </div>
+      <div class="stats">
+        <span>Step 1 读取问卷</span>
+        <span>Step 2 归纳观点</span>
+        <span>Step 3 生成反馈</span>
+      </div>
+    </header>
+
+    <section class="derivative-grid">
+      <section class="panel derivative-inputs">
+        <div class="section-title">
+          <p class="eyebrow">Inputs</p>
+          <h2>原始材料</h2>
+        </div>
+
+        <label>
+          <span>产品 / 项目名称</span>
+          <input id="productName" placeholder="某款旗舰手机媒体沟通会">
+        </label>
+
+        <label>
+          <span>沟通会背景</span>
+          <textarea id="meetingContext" rows="4" placeholder="例如：发布前媒体沟通会；媒体已体验样机；部分媒体未拿到特殊版本；需要重点关注价格预期和版本购买倾向。"></textarea>
+        </label>
+
+        <div class="source-card source-card-active">
+          <label>
+            <span>媒体问卷原始表单</span>
+            <input id="questionnaireFile" type="file" accept=".xlsx,.xlsm,.docx,.md,.markdown,.txt">
+          </label>
+          <p class="source-note">支持 XLSX、DOCX、Markdown/TXT。XLSX 会按第一张工作表抽取问卷行。</p>
+        </div>
+
+        <div class="source-card source-card-active">
+          <label>
+            <span>参考反馈文档（可多选）</span>
+            <input id="referenceFiles" type="file" multiple accept=".md,.markdown,.txt,.docx,.xlsx,.xlsm">
+          </label>
+          <p class="source-note">可放历史反馈成稿，用来学习结构和风格；不会照抄具体结论。</p>
+        </div>
+
+        <label>
+          <span>补充要求</span>
+          <textarea id="additionalInstruction" rows="5" placeholder="例如：价格预期单独成章；保留飞书 callout 和蓝/灰文字标签；不要完整附原文；重点识别传播风险。"></textarea>
+        </label>
+
+        <button type="button" id="generateButton">生成媒体反馈</button>
+        <p class="generation-status" id="generationStatus">上传问卷后开始生成。建议同时提供 1-2 份历史反馈文档作为风格参考。</p>
+      </section>
+
+      <section class="panel prompt-panel">
+        <div class="section-title">
+          <p class="eyebrow">Output</p>
+          <h2>媒体反馈 Markdown</h2>
+        </div>
+
+        <div class="model-progress" id="modelProgress" hidden>
+          <div class="progress-bar"><div class="progress-fill" id="modelProgressFill"></div></div>
+          <p id="modelProgressMessage">等待生成</p>
+        </div>
+
+        <section class="prompt-output active">
+          <div class="output-actions">
+            <h3>生成结果</h3>
+            <div class="feedback-actions">
+              <a href="#" id="previewResult" hidden>预览</a>
+              <a href="#" id="larkResult" target="_blank" rel="noreferrer" hidden>打开飞书文档</a>
+              <button type="button" id="larkExportButton" disabled>誊写到飞书文档</button>
+              <button type="button" id="copyResult">复制</button>
+            </div>
+          </div>
+          <p class="generation-status" id="larkExportStatus">生成完成后可将当前内容誊写到飞书文档。</p>
+          <textarea id="resultText" rows="28" placeholder="生成完成后会显示在这里。"></textarea>
+        </section>
+      </section>
+    </section>
+  </main>
+
+  <script src="{{ url_for('static', filename='ui.js') }}"></script>
+  <script>
+    const generateButton = document.getElementById("generateButton");
+    const generationStatus = document.getElementById("generationStatus");
+    const modelProgress = document.getElementById("modelProgress");
+    const modelProgressFill = document.getElementById("modelProgressFill");
+    const modelProgressMessage = document.getElementById("modelProgressMessage");
+    const resultText = document.getElementById("resultText");
+    const previewResult = document.getElementById("previewResult");
+    const larkExportButton = document.getElementById("larkExportButton");
+    const larkExportStatus = document.getElementById("larkExportStatus");
+    const larkResult = document.getElementById("larkResult");
+    const clearSessionButton = document.getElementById("clearSessionButton");
+    let activeJob = null;
+    let sessionEpoch = 0;
+    const draftKey = "motoolbox:feedback:draft";
+    const activeJobKey = "motoolbox:feedback:active-job";
+
+    generateButton.addEventListener("click", startGeneration);
+    ["productName", "meetingContext", "additionalInstruction"].forEach((id) => {
+      document.getElementById(id).addEventListener("input", saveDraft);
+    });
+    resultText.addEventListener("input", saveDraft);
+    larkExportButton.addEventListener("click", exportToLark);
+    document.getElementById("copyResult").addEventListener("click", async () => {
+      await navigator.clipboard.writeText(resultText.value);
+      generationStatus.textContent = "已复制生成结果。";
+    });
+
+    async function startGeneration() {
+      const requestEpoch = sessionEpoch;
+      const questionnaire = document.getElementById("questionnaireFile").files[0];
+      if (!questionnaire) {
+        generationStatus.textContent = "请先上传媒体问卷原始表单。";
+        return;
+      }
+
+      const data = new FormData();
+      data.append("questionnaire", questionnaire);
+      Array.from(document.getElementById("referenceFiles").files).forEach((file) => data.append("references", file));
+      data.append("product_name", document.getElementById("productName").value);
+      data.append("meeting_context", document.getElementById("meetingContext").value);
+      data.append("additional_instruction", document.getElementById("additionalInstruction").value);
+
+      resultText.value = "";
+      previewResult.hidden = true;
+      previewResult.removeAttribute("href");
+      larkResult.hidden = true;
+      larkResult.removeAttribute("href");
+      larkExportButton.disabled = true;
+      larkExportStatus.textContent = "生成完成后可将当前内容誊写到飞书文档。";
+      saveDraft();
+      modelProgress.hidden = false;
+      modelProgressFill.style.width = "5%";
+      modelProgressMessage.textContent = "提交生成任务";
+      generationStatus.textContent = "正在提交任务。";
+      generateButton.disabled = true;
+      generateButton.textContent = "生成中";
+
+      try {
+        const response = await fetch("/api/feedback/generate", { method: "POST", body: data });
+        const payload = await response.json();
+        if (requestEpoch !== sessionEpoch) return;
+        if (!response.ok || !payload.ok) throw new Error(payload.error || "提交失败");
+        activeJob = payload.job_id;
+        localStorage.setItem(activeJobKey, payload.job_id);
+        saveDraft();
+        pollJob(payload.job_id);
+      } catch (error) {
+        if (requestEpoch !== sessionEpoch) return;
+        generationStatus.textContent = error.message || "提交失败";
+        modelProgressMessage.textContent = generationStatus.textContent;
+        generateButton.disabled = false;
+        generateButton.textContent = "重试生成";
+      }
+    }
+
+    async function pollJob(jobId) {
+      try {
+        const response = await fetch(`/api/feedback/job/${jobId}`);
+        const job = await response.json();
+        if (activeJob !== jobId) return;
+        modelProgressFill.style.width = `${job.percent || 0}%`;
+        modelProgressMessage.textContent = job.message || "处理中";
+        generationStatus.textContent = job.message || "处理中";
+        if (job.preview && !job.result) {
+          resultText.value = job.preview;
+          saveDraft();
+        }
+        if (job.status === "done") {
+          resultText.value = job.result || "";
+          if (job.preview_url) {
+            previewResult.href = job.preview_url;
+            previewResult.hidden = false;
+          }
+          modelProgressFill.style.width = "100%";
+          generationStatus.textContent = job.message || "生成完成";
+          generateButton.disabled = false;
+          generateButton.textContent = "重新生成媒体反馈";
+          larkExportButton.disabled = !resultText.value.trim();
+          localStorage.removeItem(activeJobKey);
+          saveDraft();
+          return;
+        }
+        if (job.status === "error") {
+          generationStatus.textContent = job.message || "生成失败";
+          modelProgressMessage.textContent = generationStatus.textContent;
+          generateButton.disabled = false;
+          generateButton.textContent = "重试生成";
+          localStorage.removeItem(activeJobKey);
+          saveDraft();
+          return;
+        }
+        if (job.status === "missing") {
+          generationStatus.textContent = "上次生成任务已不在内存中，可从历史回溯查看已完成的 Markdown。";
+          modelProgressMessage.textContent = generationStatus.textContent;
+          generateButton.disabled = false;
+          generateButton.textContent = "生成媒体反馈";
+          localStorage.removeItem(activeJobKey);
+          return;
+        }
+        setTimeout(() => pollJob(jobId), 1500);
+      } catch (error) {
+        generationStatus.textContent = error.message || "查询状态失败";
+        modelProgressMessage.textContent = generationStatus.textContent;
+        generateButton.disabled = false;
+        generateButton.textContent = "重试生成";
+      }
+    }
+
+    async function exportToLark() {
+      if (!activeJob || !resultText.value.trim()) {
+        larkExportStatus.textContent = "请先生成媒体反馈。";
+        return;
+      }
+      larkExportButton.disabled = true;
+      larkExportButton.textContent = "正在誊写";
+      larkExportStatus.textContent = "正在提交飞书文档任务。";
+      try {
+        const response = await fetch(`/api/feedback/${activeJob}/lark/export`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            title: document.getElementById("productName").value || `媒体反馈-${activeJob}`,
+            markdown: resultText.value
+          })
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) throw new Error(payload.error || "誊写失败");
+        pollLarkExport(activeJob);
+      } catch (error) {
+        larkExportStatus.textContent = error.message || "誊写失败";
+        larkExportButton.disabled = false;
+        larkExportButton.textContent = "重试誊写";
+      }
+    }
+
+    async function pollLarkExport(jobId) {
+      try {
+        const response = await fetch(`/api/feedback/${jobId}/lark`);
+        const job = await response.json();
+        if (activeJob !== jobId) return;
+        larkExportStatus.textContent = job.message || "正在誊写";
+        if (job.url) {
+          larkResult.href = job.url;
+          larkResult.hidden = false;
+        }
+        if (job.status === "done") {
+          larkExportButton.disabled = false;
+          larkExportButton.textContent = "重新誊写";
+          saveDraft();
+          return;
+        }
+        if (job.status === "error") {
+          larkExportButton.disabled = false;
+          larkExportButton.textContent = "重试誊写";
+          return;
+        }
+        setTimeout(() => pollLarkExport(jobId), 1500);
+      } catch (error) {
+        larkExportStatus.textContent = error.message || "查询飞书誊写状态失败";
+        larkExportButton.disabled = false;
+        larkExportButton.textContent = "重试誊写";
+      }
+    }
+
+    function saveDraft() {
+      const draft = {
+        productName: document.getElementById("productName").value,
+        meetingContext: document.getElementById("meetingContext").value,
+        additionalInstruction: document.getElementById("additionalInstruction").value,
+        result: resultText.value,
+        previewUrl: previewResult.hidden ? "" : previewResult.href,
+        jobId: activeJob || "",
+        larkUrl: larkResult.hidden ? "" : larkResult.href
+      };
+      localStorage.setItem(draftKey, JSON.stringify(draft));
+    }
+
+    function restoreDraft() {
+      const draft = JSON.parse(localStorage.getItem(draftKey) || "{}");
+      document.getElementById("productName").value = draft.productName || "";
+      document.getElementById("meetingContext").value = draft.meetingContext || "";
+      document.getElementById("additionalInstruction").value = draft.additionalInstruction || "";
+      resultText.value = draft.result || "";
+      activeJob = draft.jobId || null;
+      if (draft.previewUrl) {
+        previewResult.href = draft.previewUrl;
+        previewResult.hidden = false;
+      }
+      if (draft.larkUrl) {
+        larkResult.href = draft.larkUrl;
+        larkResult.hidden = false;
+      }
+      larkExportButton.disabled = !(activeJob && resultText.value.trim());
+      const runningJob = localStorage.getItem(activeJobKey);
+      if (runningJob) {
+        activeJob = runningJob;
+        modelProgress.hidden = false;
+        generateButton.disabled = true;
+        generateButton.textContent = "生成中";
+        pollJob(activeJob);
+      }
+    }
+
+    clearSessionButton.addEventListener("click", async () => {
+      const confirmed = await MOUI.confirm(
+        "将清空当前输入、上传文件、生成结果和任务关联。历史回溯中的文件不会删除。",
+        {title: "清除当前 Session？", confirmText: "一键清除", danger: true}
+      );
+      if (!confirmed) return;
+
+      sessionEpoch += 1;
+      activeJob = null;
+      localStorage.removeItem(draftKey);
+      localStorage.removeItem(activeJobKey);
+      ["productName", "meetingContext", "additionalInstruction", "questionnaireFile", "referenceFiles"].forEach((id) => {
+        document.getElementById(id).value = "";
+      });
+      resultText.value = "";
+      previewResult.hidden = true;
+      previewResult.removeAttribute("href");
+      larkResult.hidden = true;
+      larkResult.removeAttribute("href");
+      larkExportButton.disabled = true;
+      larkExportButton.textContent = "誊写到飞书文档";
+      larkExportStatus.textContent = "生成完成后可将当前内容誊写到飞书文档。";
+      modelProgress.hidden = true;
+      modelProgressFill.style.width = "0%";
+      modelProgressMessage.textContent = "等待生成";
+      generateButton.disabled = false;
+      generateButton.textContent = "生成媒体反馈";
+      generationStatus.textContent = "Session 已清除，下一次生成将从空白上下文开始。";
+      MOUI.toast("当前 Session 已清除", "success");
+    });
+
+    restoreDraft();
+  </script>
+</body>
+</html>

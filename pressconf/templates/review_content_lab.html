@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MOtoolbox 媒体待审内容审核实验室</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='web.css') }}">
+</head>
+<body>
+  <main class="derivative-shell">
+    <header class="toolbox-header">
+      <div>
+        <p class="eyebrow">MO Toolbox Lab</p>
+        <h1>媒体待审内容审核实验室</h1>
+        <p class="muted">实验入口，不进入正式模块导航。先看稿件/脚本/逐字稿的风险表达、待确认信息和修改意见。</p>
+      </div>
+      <div class="entry-links">
+        <a class="admin-entry" href="{{ url_for('review_video') }}">返回评测视频分析</a>
+        <a class="admin-entry" href="{{ url_for('admin') }}">后台控制台</a>
+      </div>
+    </header>
+
+    <header class="result-header derivative-header">
+      <div>
+        <p class="eyebrow">Experimental</p>
+        <h1>审核媒体发来待确认的内容</h1>
+        <p class="muted">支持粘贴正文、MD/TXT/DOCX、飞书文档链接，以及可获取字幕或可转写的在线视频链接。</p>
+      </div>
+      <div class="stats">
+        <span>Step 1 读取内容</span>
+        <span>Step 2 风险初筛</span>
+        <span>Step 3 修改建议</span>
+      </div>
+    </header>
+
+    <section class="derivative-grid">
+      <section class="panel derivative-inputs">
+        <div class="section-title">
+          <p class="eyebrow">Inputs</p>
+          <h2>待审材料</h2>
+        </div>
+
+        <label>
+          <span>产品 / 项目名称</span>
+          <input id="productName" placeholder="例如：某款旗舰手机 Pro">
+        </label>
+
+        <label>
+          <span>媒体 / 账号名称</span>
+          <input id="mediaName" placeholder="例如：某媒体老师 / KOL 账号">
+        </label>
+
+        <label>
+          <span>内容标题</span>
+          <input id="contentTitle" placeholder="留空时按来源生成实验标题">
+        </label>
+
+        <section class="source-box">
+          <span class="field-title">内容来源</span>
+          <div class="source-options">
+            <label class="radio-line">
+              <input type="radio" name="source_type" value="paste" checked>
+              <span>粘贴正文</span>
+            </label>
+            <label class="radio-line">
+              <input type="radio" name="source_type" value="file">
+              <span>稿件文件</span>
+            </label>
+            <label class="radio-line">
+              <input type="radio" name="source_type" value="lark">
+              <span>飞书文档</span>
+            </label>
+            <label class="radio-line">
+              <input type="radio" name="source_type" value="online_video">
+              <span>视频链接</span>
+            </label>
+          </div>
+
+          <div class="source-panel" data-source-panel="paste">
+            <label>
+              <span>媒体正文 / 脚本 / 逐字稿</span>
+              <textarea id="contentText" rows="12" placeholder="粘贴媒体发来的待审内容。正文、脚本、字幕文本都可以。"></textarea>
+            </label>
+          </div>
+
+          <div class="source-panel" data-source-panel="file">
+            <label>
+              <span>上传稿件文件</span>
+              <input id="contentFile" type="file" accept=".md,.markdown,.txt,.docx">
+              <small>实验版先支持 MD、TXT、DOCX。DOCX 会抽取段落和表格文本后审核。</small>
+            </label>
+          </div>
+
+          <div class="source-panel" data-source-panel="lark">
+            <label>
+              <span>飞书文档链接</span>
+              <input id="larkUrl" placeholder="https://...feishu.cn/docx/...">
+              <small>会走当前后台配置的飞书读取能力。公开文档能否读取取决于分享权限和读取通路。</small>
+            </label>
+          </div>
+
+          <div class="source-panel" data-source-panel="online_video">
+            <label>
+              <span>在线视频 / 阅流类链接</span>
+              <input id="videoUrl" placeholder="https://...">
+              <small>先尝试抓字幕，再尝试下载视频 ASR。若链接不支持，请改用导出的逐字稿、字幕或稿件。</small>
+            </label>
+          </div>
+        </section>
+
+        <label>
+          <span>审核参考 / 官方口径</span>
+          <textarea id="reviewReference" rows="8" placeholder="可直接写审核要求，也可粘贴飞书文档链接，例如产品评测指南、产品简介、市场白皮书。文字要求和多条飞书链接可以混合输入；系统会先识别链接，再通过飞书 MCP 读取正文作为对照。留空时事实问题只标待确认。"></textarea>
+          <small>实验版先智能解析飞书链接；读取失败会提示检查文档分享权限或后台飞书 MCP 配置。</small>
+        </label>
+
+        <label>
+          <span>补充要求</span>
+          <textarea id="additionalInstruction" rows="4" placeholder="例如：优先看标题和负面表达；不要对媒体主观体验过度干预；修改意见给可回媒体的话术。"></textarea>
+        </label>
+
+        <button type="button" id="generateButton">生成审核报告</button>
+        <p class="generation-status" id="generationStatus">这是实验版：先帮你找风险表达和修改意见。审核参考框可混合输入提示词与飞书资料链接。</p>
+      </section>
+
+      <section class="panel prompt-panel">
+        <div class="section-title">
+          <p class="eyebrow">Output</p>
+          <h2>媒体待审内容审核报告</h2>
+        </div>
+
+        <div class="model-progress" id="modelProgress" hidden>
+          <div class="progress-bar"><div class="progress-fill" id="modelProgressFill"></div></div>
+          <p id="modelProgressMessage">等待生成</p>
+        </div>
+
+        <section class="prompt-output active">
+          <div class="output-actions">
+            <h3>实验结果</h3>
+            <div class="feedback-actions">
+              <a href="#" id="previewResult" hidden>预览</a>
+              <button type="button" id="copyResult">复制</button>
+            </div>
+          </div>
+          <textarea id="resultText" rows="28" placeholder="审核报告会显示在这里。"></textarea>
+        </section>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const sourceRadios = Array.from(document.querySelectorAll("input[name='source_type']"));
+    const sourcePanels = Array.from(document.querySelectorAll("[data-source-panel]"));
+    const generateButton = document.getElementById("generateButton");
+    const generationStatus = document.getElementById("generationStatus");
+    const modelProgress = document.getElementById("modelProgress");
+    const modelProgressFill = document.getElementById("modelProgressFill");
+    const modelProgressMessage = document.getElementById("modelProgressMessage");
+    const resultText = document.getElementById("resultText");
+    const previewResult = document.getElementById("previewResult");
+    let activeJob = null;
+
+    function selectedSourceType() {
+      return document.querySelector("input[name='source_type']:checked")?.value || "paste";
+    }
+
+    function syncSourcePanels() {
+      const selected = selectedSourceType();
+      sourcePanels.forEach((panel) => {
+        const isActive = panel.dataset.sourcePanel === selected;
+        panel.hidden = !isActive;
+        panel.querySelectorAll("input, textarea").forEach((field) => {
+          field.disabled = !isActive;
+        });
+      });
+    }
+
+    sourceRadios.forEach((radio) => radio.addEventListener("change", syncSourcePanels));
+    syncSourcePanels();
+
+    if (window.location.protocol === "file:") {
+      const serverUrl = "http://127.0.0.1:5058/review-content-lab";
+      generationStatus.innerHTML = `当前是直接打开模板文件，后端接口不会工作。请从 <a href="${serverUrl}">${serverUrl}</a> 打开。`;
+      generateButton.disabled = true;
+    }
+
+    generateButton.addEventListener("click", startGeneration);
+    document.getElementById("copyResult").addEventListener("click", async () => {
+      await navigator.clipboard.writeText(resultText.value);
+      generationStatus.textContent = "已复制审核报告。";
+    });
+
+    async function startGeneration() {
+      const data = new FormData();
+      data.append("source_type", selectedSourceType());
+      data.append("product_name", document.getElementById("productName").value);
+      data.append("media_name", document.getElementById("mediaName").value);
+      data.append("content_title", document.getElementById("contentTitle").value);
+      data.append("content_text", document.getElementById("contentText").value);
+      data.append("lark_url", document.getElementById("larkUrl").value);
+      data.append("video_url", document.getElementById("videoUrl").value);
+      data.append("review_reference", document.getElementById("reviewReference").value);
+      data.append("additional_instruction", document.getElementById("additionalInstruction").value);
+      const file = document.getElementById("contentFile").files[0];
+      if (file) data.append("content_file", file);
+
+      resultText.value = "";
+      previewResult.hidden = true;
+      previewResult.removeAttribute("href");
+      modelProgress.hidden = false;
+      modelProgressFill.style.width = "5%";
+      modelProgressMessage.textContent = "提交审核任务";
+      generationStatus.textContent = "正在提交实验任务。";
+      generateButton.disabled = true;
+      generateButton.textContent = "审核中";
+
+      try {
+        const response = await fetch("/api/review-content-lab/generate", { method: "POST", body: data });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) throw new Error(payload.error || "提交失败");
+        activeJob = payload.job_id;
+        pollJob(payload.job_id);
+      } catch (error) {
+        generationStatus.textContent = error.message || "提交失败";
+        modelProgressMessage.textContent = generationStatus.textContent;
+        generateButton.disabled = false;
+        generateButton.textContent = "重试审核";
+      }
+    }
+
+    async function pollJob(jobId) {
+      try {
+        const response = await fetch(`/api/review-content-lab/job/${jobId}`);
+        const job = await response.json();
+        if (activeJob !== jobId) return;
+        modelProgressFill.style.width = `${job.percent || 0}%`;
+        modelProgressMessage.textContent = job.message || "处理中";
+        generationStatus.textContent = job.message || "处理中";
+        if (job.preview && !job.result) resultText.value = job.preview;
+        if (job.status === "done") {
+          resultText.value = job.result || "";
+          if (job.preview_url) {
+            previewResult.href = job.preview_url;
+            previewResult.hidden = false;
+          }
+          modelProgressFill.style.width = "100%";
+          generationStatus.textContent = job.message || "审核完成";
+          generateButton.disabled = false;
+          generateButton.textContent = "重新生成审核报告";
+          return;
+        }
+        if (job.status === "error") {
+          generationStatus.textContent = job.message || "审核失败";
+          modelProgressMessage.textContent = generationStatus.textContent;
+          generateButton.disabled = false;
+          generateButton.textContent = "重试审核";
+          return;
+        }
+        setTimeout(() => pollJob(jobId), 1500);
+      } catch (error) {
+        generationStatus.textContent = error.message || "查询状态失败";
+        modelProgressMessage.textContent = generationStatus.textContent;
+        generateButton.disabled = false;
+        generateButton.textContent = "重试审核";
+      }
+    }
+  </script>
+</body>
+</html>

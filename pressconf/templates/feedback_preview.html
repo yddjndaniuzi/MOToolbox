@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='web.css') }}">
+</head>
+<body>
+  <main class="doc-preview-shell">
+    <header class="result-header">
+      <div>
+        <a class="back-link" href="{{ back_url or url_for('feedback') }}">{{ back_label or "返回媒体反馈" }}</a>
+        <h1>{{ title }}</h1>
+      </div>
+      <div class="stats">
+        {% if lark_payload %}
+          <button type="button" id="larkExport" data-payload='{{ lark_payload | tojson }}'>誊写到飞书文档</button>
+          <a
+            id="larkDocumentLink"
+            href="{{ lark_export.get('url', '') if lark_export else '' }}"
+            target="_blank"
+            rel="noreferrer"
+            {% if not lark_export or not lark_export.get('url') %}hidden{% endif %}
+          >打开飞书文档</a>
+        {% endif %}
+        {% if obsidian_payload %}
+          <button type="button" id="obsidianExport" data-payload='{{ obsidian_payload | tojson }}'>写入 Obsidian</button>
+        {% endif %}
+        {% if transcript_url %}
+          <a href="{{ transcript_url }}">逐字稿查阅</a>
+        {% endif %}
+        <a href="{{ markdown_url or url_for('raw_file', filename='media_feedback/' + job_id + '/media_feedback.md') }}">Markdown</a>
+      </div>
+    </header>
+    <div class="preview-job" id="obsidianStatus" hidden>
+      <p id="obsidianMessage">等待写入 Obsidian</p>
+    </div>
+    {% if lark_payload %}
+      <div class="preview-job" id="larkExportStatus" hidden>
+        <div class="progress-track"><div class="progress-fill" id="larkExportProgress"></div></div>
+        <p id="larkExportMessage">等待誊写到飞书文档</p>
+      </div>
+    {% endif %}
+
+    {% if not content %}
+      <section class="panel empty-preview">
+        <p class="muted">{{ empty_text or "还没有可预览的媒体反馈内容。" }}</p>
+      </section>
+    {% else %}
+      <section class="panel feedback-preview-panel">
+        <article class="doc-rendered feedback-rendered">
+          {% for block in blocks %}
+            <section class="doc-block doc-block-{{ block.kind }}">
+              {{ block.html | safe }}
+            </section>
+          {% endfor %}
+        </article>
+      </section>
+    {% endif %}
+  </main>
+  <script>
+    const obsidianButton = document.getElementById("obsidianExport");
+    const obsidianStatus = document.getElementById("obsidianStatus");
+    const obsidianMessage = document.getElementById("obsidianMessage");
+    const larkButton = document.getElementById("larkExport");
+    const larkStatus = document.getElementById("larkExportStatus");
+    const larkProgress = document.getElementById("larkExportProgress");
+    const larkMessage = document.getElementById("larkExportMessage");
+    const larkDocumentLink = document.getElementById("larkDocumentLink");
+
+    larkButton?.addEventListener("click", async () => {
+      const payload = JSON.parse(larkButton.dataset.payload || "{}");
+      larkButton.disabled = true;
+      larkButton.textContent = "正在誊写";
+      larkStatus.hidden = false;
+      larkMessage.textContent = "正在提交飞书文档任务。";
+      try {
+        const response = await fetch(`/api/feedback/${payload.job_id}/lark/export`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({title: payload.title})
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || "誊写失败");
+        pollLarkExport(payload.job_id);
+      } catch (error) {
+        larkMessage.textContent = error.message || "誊写失败";
+        larkButton.disabled = false;
+        larkButton.textContent = "重试誊写";
+      }
+    });
+
+    async function pollLarkExport(jobId) {
+      try {
+        const response = await fetch(`/api/feedback/${jobId}/lark`);
+        const job = await response.json();
+        larkStatus.hidden = false;
+        larkProgress.style.width = `${job.percent || 0}%`;
+        larkMessage.textContent = job.message || "正在誊写";
+        if (job.url) {
+          larkDocumentLink.href = job.url;
+          larkDocumentLink.hidden = false;
+        }
+        if (job.status === "done") {
+          larkButton.disabled = false;
+          larkButton.textContent = "重新誊写";
+          return;
+        }
+        if (job.status === "error") {
+          larkButton.disabled = false;
+          larkButton.textContent = "重试誊写";
+          return;
+        }
+        setTimeout(() => pollLarkExport(jobId), 1500);
+      } catch (error) {
+        larkMessage.textContent = error.message || "查询飞书誊写状态失败";
+        larkButton.disabled = false;
+        larkButton.textContent = "重试誊写";
+      }
+    }
+
+    obsidianButton?.addEventListener("click", async () => {
+      obsidianButton.disabled = true;
+      obsidianStatus.hidden = false;
+      obsidianMessage.textContent = "正在写入绑定的 Obsidian vault...";
+      try {
+        const response = await fetch("/api/obsidian/export", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: obsidianButton.dataset.payload
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) throw new Error(payload.error || "写入失败");
+        obsidianMessage.textContent = `已写入：${payload.path}`;
+      } catch (error) {
+        obsidianMessage.textContent = error.message || "写入失败";
+      } finally {
+        obsidianButton.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

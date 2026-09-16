@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ display_name }} · 图文预览</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='web.css') }}">
+  <script src="{{ url_for('static', filename='ui.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='folders.js') }}"></script>
+</head>
+<body>
+  <main class="doc-preview-shell">
+    <header class="result-header">
+      <div>
+        <a class="back-link" href="{{ url_for('brief_form', slug=slug) }}">返回简报</a>
+        <h1>{{ display_name }} · 图文预览</h1>
+      </div>
+      <div class="stats">
+        {% if finder_available %}<button type="button" data-open-folder="raw" data-folder-slug="{{ slug }}">在访达中打开图包</button>{% endif %}
+        <span>{{ "精加工稿" if variant == "refined" else "基础稿" }}</span>
+        <span id="selectedFrame">未选择图片</span>
+        <form class="inline-stat-form" action="{{ url_for('refine_generate', slug=slug, next='preview') }}" method="post" id="resummaryForm">
+          <input type="hidden" name="user_instruction" id="resummaryInstruction">
+          <button type="button" id="resummaryButton">重新总结</button>
+        </form>
+        <form class="inline-stat-form" action="{{ url_for('lark_export_generate', slug=slug, variant=variant) }}" method="post" id="larkExportForm">
+          <button type="submit" id="larkExportButton">写入飞书文档</button>
+        </form>
+        <button type="button" id="obsidianExport" data-payload='{{ obsidian_payload | tojson }}'>写入 Obsidian</button>
+        <a
+          href="{{ lark_export.get('url', '') }}"
+          target="_blank"
+          rel="noreferrer"
+          id="larkTopLink"
+          {% if not lark_export.get("url") %}hidden{% endif %}
+        >飞书文档</a>
+        <a href="{{ url_for('brief_preview', slug=slug, variant='base') }}">基础稿</a>
+        <a href="{{ url_for('brief_preview', slug=slug, variant='refined') }}">精加工稿</a>
+        <a href="{{ url_for('raw_file', filename=slug + '/' + filename) }}">Markdown</a>
+      </div>
+    </header>
+
+    <div class="preview-job" id="resummaryStatus" hidden>
+      <div class="progress-track">
+        <div class="progress-fill" id="resummaryProgress"></div>
+      </div>
+      <p id="resummaryMessage">等待重新总结</p>
+      <pre id="resummaryPreview" hidden></pre>
+    </div>
+
+    <div class="modal-backdrop" id="resummaryModal" hidden>
+      <section class="panel resummary-dialog">
+        <div class="preview-header">
+          <h2>重新总结要求</h2>
+          <button type="button" class="ghost-button" id="closeResummaryModal">关闭</button>
+        </div>
+        <label>
+          <span>本次补充提示词</span>
+          <textarea
+            id="resummaryInstructionInput"
+            rows="7"
+            placeholder="例如：影像部分展开写，补充和 iPhone 16 Pro 的对比；价格策略不要只复述，要判断定位。"
+          ></textarea>
+        </label>
+        <div class="dialog-actions">
+          <button type="button" id="submitResummaryWithInstruction">开始重新总结</button>
+          <button type="button" class="ghost-button" id="submitResummaryWithoutInstruction">不加要求，直接总结</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="preview-job" id="larkExportStatus" {% if lark_job.get("status") not in ["running", "error"] %}hidden{% endif %}>
+      <div class="progress-track">
+        <div class="progress-fill" id="larkExportProgress" style="width: {{ lark_job.get("percent", 0) }}%"></div>
+      </div>
+      <p id="larkExportMessage">{{ lark_job.get("message", "等待写入飞书文档") }}</p>
+      <a id="larkExportLink" href="{{ lark_export.get('url', '') }}" target="_blank" rel="noreferrer" {% if not lark_export.get("url") %}hidden{% endif %}>打开飞书文档</a>
+    </div>
+    <div class="preview-job" id="obsidianStatus" hidden>
+      <p id="obsidianMessage">等待写入 Obsidian</p>
+    </div>
+
+    {% if not content %}
+      <section class="panel empty-preview">
+        <p class="muted">还没有可预览的简报内容。</p>
+      </section>
+    {% else %}
+      <section class="doc-preview-grid editor-grid">
+        <article class="doc-rendered">
+          {% for block in blocks %}
+            <section class="doc-block doc-block-{{ block.kind }}" data-block-index="{{ block.index }}">
+              {{ block.html | safe }}
+            </section>
+          {% endfor %}
+        </article>
+
+        <aside class="frame-drawer">
+          <div class="preview-header">
+            <h2>图包</h2>
+            <span>{{ keyframes | length }} 张</span>
+          </div>
+          <div class="frame-drawer-grid">
+            {% for frame in keyframes %}
+              <article
+                class="frame-thumb"
+                draggable="true"
+                data-image-path="{{ frame.path }}"
+                data-preview-url="{{ url_for('raw_file', filename=slug + '/' + frame.path) }}"
+                data-preview-meta="{{ frame.timestamp }} · {{ frame.reason }}"
+                tabindex="0"
+                title="{{ frame.timestamp }} · {{ frame.reason }}"
+              >
+                <img src="{{ url_for('raw_file', filename=slug + '/' + frame.path) }}" alt="{{ frame.path }}">
+                <span>{{ frame.timestamp }}</span>
+              </article>
+            {% endfor %}
+          </div>
+        </aside>
+        <div class="frame-hover-preview" id="frameHoverPreview" hidden>
+          <img id="frameHoverImage" alt="frame preview">
+          <span id="frameHoverMeta"></span>
+        </div>
+      </section>
+    {% endif %}
+  </main>
+
+  <script>
+    const slug = "{{ slug }}";
+    const variant = "{{ variant }}";
+    let selectedImagePath = "";
+    const selectedFrame = document.getElementById("selectedFrame");
+    const resummaryForm = document.getElementById("resummaryForm");
+    const resummaryButton = document.getElementById("resummaryButton");
+    const resummaryInstruction = document.getElementById("resummaryInstruction");
+    const resummaryModal = document.getElementById("resummaryModal");
+    const resummaryInstructionInput = document.getElementById("resummaryInstructionInput");
+    const closeResummaryModal = document.getElementById("closeResummaryModal");
+    const submitResummaryWithInstruction = document.getElementById("submitResummaryWithInstruction");
+    const submitResummaryWithoutInstruction = document.getElementById("submitResummaryWithoutInstruction");
+    const resummaryStatus = document.getElementById("resummaryStatus");
+    const resummaryProgress = document.getElementById("resummaryProgress");
+    const resummaryMessage = document.getElementById("resummaryMessage");
+    const resummaryPreview = document.getElementById("resummaryPreview");
+    const larkExportForm = document.getElementById("larkExportForm");
+    const larkExportButton = document.getElementById("larkExportButton");
+    const larkExportStatus = document.getElementById("larkExportStatus");
+    const larkExportProgress = document.getElementById("larkExportProgress");
+    const larkExportMessage = document.getElementById("larkExportMessage");
+    const larkExportLink = document.getElementById("larkExportLink");
+    const larkTopLink = document.getElementById("larkTopLink");
+    const obsidianButton = document.getElementById("obsidianExport");
+    const obsidianStatus = document.getElementById("obsidianStatus");
+    const obsidianMessage = document.getElementById("obsidianMessage");
+    const frameHoverPreview = document.getElementById("frameHoverPreview");
+    const frameHoverImage = document.getElementById("frameHoverImage");
+    const frameHoverMeta = document.getElementById("frameHoverMeta");
+    const resummarySessionKey = `motoolbox:${slug}:resummary-running`;
+    const larkExportSessionKey = `motoolbox:${slug}:lark-export-running`;
+    let resummaryActive = sessionStorage.getItem(resummarySessionKey) === "1";
+    let larkExportActive = sessionStorage.getItem(larkExportSessionKey) === "1";
+
+    let draggedDocImage = false;
+
+    async function editMarkdown(action, blockIndex, imagePath, sourceBlockIndex = null) {
+      const response = await fetch(`/api/result/${slug}/preview/edit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          block_index: blockIndex,
+          image_path: imagePath,
+          source_block_index: sourceBlockIndex,
+          variant,
+        }),
+      });
+      const payload = await response.json();
+      if (!payload.ok) {
+        MOUI.toast(payload.error || "编辑失败", "error");
+        return;
+      }
+      window.location.reload();
+    }
+
+    function selectFrame(thumb) {
+      selectedImagePath = thumb.dataset.imagePath;
+      document.querySelectorAll(".frame-thumb").forEach((item) => item.classList.remove("selected"));
+      thumb.classList.add("selected");
+      selectedFrame.textContent = selectedImagePath.split("/").pop();
+      document.querySelectorAll(".insert-selected").forEach((button) => {
+        button.disabled = false;
+      });
+    }
+
+    function showFramePreview(thumb, event) {
+      frameHoverImage.src = thumb.dataset.previewUrl;
+      frameHoverMeta.textContent = thumb.dataset.previewMeta || thumb.dataset.imagePath;
+      frameHoverPreview.hidden = false;
+      moveFramePreview(event);
+    }
+
+    function moveFramePreview(event) {
+      if (frameHoverPreview.hidden) {
+        return;
+      }
+      const margin = 18;
+      const width = Math.min(520, window.innerWidth * 0.42);
+      let left = event.clientX - width - margin;
+      if (left < margin) {
+        left = event.clientX + margin;
+      }
+      let top = event.clientY - 120;
+      top = Math.max(margin, Math.min(top, window.innerHeight - 340));
+      frameHoverPreview.style.width = `${width}px`;
+      frameHoverPreview.style.left = `${left}px`;
+      frameHoverPreview.style.top = `${top}px`;
+    }
+
+    function hideFramePreview() {
+      frameHoverPreview.hidden = true;
+      frameHoverImage.removeAttribute("src");
+    }
+
+    document.querySelectorAll(".doc-block").forEach((block) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "insert-selected";
+      button.textContent = "插入所选图";
+      button.disabled = true;
+      button.addEventListener("click", () => {
+        if (selectedImagePath) {
+          editMarkdown("add_image", Number(block.dataset.blockIndex), selectedImagePath);
+        }
+      });
+      block.prepend(button);
+    });
+
+    document.addEventListener("click", (event) => {
+      const thumb = event.target.closest(".frame-thumb");
+      if (thumb) {
+        selectFrame(thumb);
+        return;
+      }
+
+      const image = event.target.closest(".doc-image");
+      if (image) {
+        if (draggedDocImage) {
+          return;
+        }
+        event.preventDefault();
+        const block = image.closest(".doc-block");
+        editMarkdown("remove_image", Number(block.dataset.blockIndex), image.dataset.imagePath);
+      }
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      const thumb = event.target.closest(".frame-thumb");
+      if (thumb) {
+        event.preventDefault();
+        selectFrame(thumb);
+      }
+    });
+
+    document.querySelectorAll(".frame-thumb").forEach((thumb) => {
+      thumb.addEventListener("mouseenter", (event) => showFramePreview(thumb, event));
+      thumb.addEventListener("mousemove", moveFramePreview);
+      thumb.addEventListener("mouseleave", hideFramePreview);
+      thumb.addEventListener("focus", (event) => showFramePreview(thumb, event));
+      thumb.addEventListener("blur", hideFramePreview);
+      thumb.addEventListener("dragstart", (event) => {
+        hideFramePreview();
+        selectFrame(thumb);
+        event.dataTransfer.setData("text/plain", thumb.dataset.imagePath);
+        event.dataTransfer.setData("application/x-motoolbox-frame", thumb.dataset.imagePath);
+        event.dataTransfer.effectAllowed = "copy";
+      });
+    });
+
+    document.querySelectorAll(".doc-image").forEach((image) => {
+      image.addEventListener("dragstart", (event) => {
+        const block = image.closest(".doc-block");
+        draggedDocImage = true;
+        event.dataTransfer.setData("text/plain", image.dataset.imagePath);
+        event.dataTransfer.setData("application/x-motoolbox-frame", image.dataset.imagePath);
+        event.dataTransfer.setData("application/x-motoolbox-existing-frame", "1");
+        event.dataTransfer.setData("application/x-motoolbox-source-block", block.dataset.blockIndex);
+        event.dataTransfer.effectAllowed = "move";
+      });
+      image.addEventListener("dragend", () => {
+        window.setTimeout(() => {
+          draggedDocImage = false;
+        }, 50);
+      });
+    });
+
+    document.querySelectorAll(".doc-block").forEach((block) => {
+      block.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        block.classList.add("drop-target");
+      });
+      block.addEventListener("dragleave", () => {
+        block.classList.remove("drop-target");
+      });
+      block.addEventListener("drop", (event) => {
+        event.preventDefault();
+        block.classList.remove("drop-target");
+        const imagePath = event.dataTransfer.getData("application/x-motoolbox-frame") || event.dataTransfer.getData("text/plain");
+        const isExisting = event.dataTransfer.getData("application/x-motoolbox-existing-frame") === "1";
+        const sourceBlockIndex = event.dataTransfer.getData("application/x-motoolbox-source-block");
+        if (imagePath) {
+          editMarkdown(
+            isExisting ? "move_image" : "add_image",
+            Number(block.dataset.blockIndex),
+            imagePath,
+            sourceBlockIndex === "" ? null : Number(sourceBlockIndex)
+          );
+        }
+      });
+    });
+
+    function startResummary(instruction) {
+      resummaryInstruction.value = instruction || "";
+      resummaryActive = true;
+      sessionStorage.setItem(resummarySessionKey, "1");
+      resummaryButton.disabled = true;
+      resummaryButton.textContent = "重新总结中";
+      resummaryStatus.hidden = false;
+      resummaryProgress.style.width = "8%";
+      resummaryMessage.textContent = instruction ? "模型 重新总结中：已注入补充要求" : "模型 重新总结中";
+      resummaryForm.submit();
+    }
+
+    resummaryButton?.addEventListener("click", () => {
+      resummaryModal.hidden = false;
+      resummaryInstructionInput.focus();
+    });
+
+    closeResummaryModal?.addEventListener("click", () => {
+      resummaryModal.hidden = true;
+    });
+
+    resummaryModal?.addEventListener("click", (event) => {
+      if (event.target === resummaryModal) {
+        resummaryModal.hidden = true;
+      }
+    });
+
+    submitResummaryWithInstruction?.addEventListener("click", () => {
+      startResummary(resummaryInstructionInput.value.trim());
+    });
+
+    submitResummaryWithoutInstruction?.addEventListener("click", () => {
+      startResummary("");
+    });
+
+    larkExportForm?.addEventListener("submit", () => {
+      larkExportActive = true;
+      sessionStorage.setItem(larkExportSessionKey, "1");
+      larkExportButton.disabled = true;
+      larkExportButton.textContent = "写入中";
+      larkExportStatus.hidden = false;
+      larkExportProgress.style.width = "8%";
+      larkExportMessage.textContent = "准备写入飞书文档";
+      larkExportLink.hidden = true;
+    });
+
+    obsidianButton?.addEventListener("click", async () => {
+      obsidianButton.disabled = true;
+      obsidianStatus.hidden = false;
+      obsidianMessage.textContent = "正在写入绑定的 Obsidian vault...";
+      try {
+        const response = await fetch("/api/obsidian/export", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: obsidianButton.dataset.payload
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) throw new Error(payload.error || "写入失败");
+        obsidianMessage.textContent = `已写入：${payload.path}`;
+      } catch (error) {
+        obsidianMessage.textContent = error.message || "写入失败";
+      } finally {
+        obsidianButton.disabled = false;
+      }
+    });
+
+    async function pollResummary() {
+      const response = await fetch(`/api/result/${slug}/refine`);
+      const job = await response.json();
+      if (job.status === "running") {
+        resummaryActive = true;
+        sessionStorage.setItem(resummarySessionKey, "1");
+        resummaryStatus.hidden = false;
+        resummaryButton.disabled = true;
+        resummaryButton.textContent = "重新总结中";
+        resummaryProgress.style.width = `${job.percent || 0}%`;
+        resummaryMessage.textContent = job.message || "处理中";
+        if (job.preview) {
+          resummaryPreview.hidden = false;
+          resummaryPreview.textContent = job.preview;
+        }
+        window.setTimeout(pollResummary, 1800);
+        return;
+      }
+      if (job.status === "done") {
+        if (resummaryActive) {
+          sessionStorage.removeItem(resummarySessionKey);
+          window.location.href = `/result/${slug}/preview?variant=refined&t=${Date.now()}`;
+          return;
+        }
+        resummaryStatus.hidden = true;
+        resummaryButton.disabled = false;
+        resummaryButton.textContent = "重新总结";
+        return;
+      }
+      if (job.status === "error") {
+        sessionStorage.removeItem(resummarySessionKey);
+        resummaryActive = false;
+        resummaryStatus.hidden = false;
+        resummaryProgress.style.width = "100%";
+        resummaryMessage.textContent = job.message || "重新总结失败";
+        if (job.preview) {
+          resummaryPreview.hidden = false;
+          resummaryPreview.textContent = job.preview;
+        }
+        resummaryButton.disabled = false;
+        resummaryButton.textContent = "重新总结";
+        return;
+      }
+      sessionStorage.removeItem(resummarySessionKey);
+      resummaryActive = false;
+      resummaryStatus.hidden = true;
+      resummaryButton.disabled = false;
+      resummaryButton.textContent = "重新总结";
+    }
+
+    async function pollLarkExport() {
+      const response = await fetch(`/api/result/${slug}/lark`);
+      const job = await response.json();
+      if (job.status === "running") {
+        larkExportActive = true;
+        sessionStorage.setItem(larkExportSessionKey, "1");
+        larkExportStatus.hidden = false;
+        larkExportButton.disabled = true;
+        larkExportButton.textContent = "写入中";
+        larkExportProgress.style.width = `${job.percent || 0}%`;
+        larkExportMessage.textContent = job.message || "写入中";
+        window.setTimeout(pollLarkExport, 1500);
+        return;
+      }
+      if (job.status === "done") {
+        sessionStorage.removeItem(larkExportSessionKey);
+        larkExportActive = false;
+        larkExportStatus.hidden = false;
+        larkExportProgress.style.width = "100%";
+        if (job.url) {
+          larkExportLink.href = job.url;
+          larkExportLink.hidden = false;
+          larkExportLink.textContent = "打开本次飞书文档";
+          larkTopLink.href = job.url;
+          larkTopLink.hidden = false;
+          larkTopLink.textContent = "本次飞书文档";
+          larkExportMessage.textContent = `${job.message || "已写入飞书文档"}：${job.url}`;
+        } else {
+          larkExportMessage.textContent = job.message || "已写入飞书文档";
+        }
+        larkExportButton.disabled = false;
+        larkExportButton.textContent = "写入飞书文档";
+        return;
+      }
+      if (job.status === "error") {
+        sessionStorage.removeItem(larkExportSessionKey);
+        larkExportActive = false;
+        larkExportStatus.hidden = false;
+        larkExportProgress.style.width = "100%";
+        larkExportMessage.textContent = job.message || "写入失败";
+        larkExportButton.disabled = false;
+        larkExportButton.textContent = "写入飞书文档";
+        return;
+      }
+      if (larkExportActive) {
+        window.setTimeout(pollLarkExport, 1500);
+        return;
+      }
+      larkExportStatus.hidden = true;
+      larkExportButton.disabled = false;
+      larkExportButton.textContent = "写入飞书文档";
+    }
+
+    pollResummary();
+    pollLarkExport();
+  </script>
+</body>
+</html>

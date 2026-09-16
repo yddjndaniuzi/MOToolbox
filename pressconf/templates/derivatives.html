@@ -1,0 +1,683 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MOtoolbox 副产物生成器</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='web.css') }}">
+</head>
+<body>
+  <main class="derivative-shell">
+    <header class="toolbox-header">
+      <div>
+        <p class="eyebrow">MO Toolbox</p>
+        <h1>MO 工具箱</h1>
+        <p class="muted">发布会简报、副产物生成、媒体反馈、评测视频分析和手机参数速算，一起放在这里。</p>
+      </div>
+      <div class="entry-links">
+        <button type="button" class="clear-session-button" id="clearSessionButton">清除 Session</button>
+        <a class="admin-entry" href="{{ url_for('module_history', module='derivatives') }}">历史回溯</a>
+        <a class="admin-entry" href="{{ url_for('admin') }}">后台控制台</a>
+      </div>
+    </header>
+
+    <nav class="tool-tabs" aria-label="MO 工具模块">
+      <a class="tool-tab" href="{{ url_for('index') }}">
+        <strong>发布会简报</strong>
+        <span>视频采集、关键帧、简报精加工</span>
+      </a>
+      <a class="tool-tab active" href="{{ url_for('derivatives') }}">
+        <strong>副产物生成</strong>
+        <span>评测指南、新闻稿、二次加工</span>
+      </a>
+      <a class="tool-tab" href="{{ url_for('feedback') }}">
+        <strong>媒体反馈</strong>
+        <span>问卷表单、观点归纳、风险提示</span>
+      </a>
+      <a class="tool-tab" href="{{ url_for('review_video') }}">
+        <strong>评测视频分析</strong>
+        <span>逐字稿、情感倾向、媒体金句</span>
+      </a>
+      <a class="tool-tab" href="{{ url_for('calculator') }}">
+        <strong>MO 速算器</strong>
+        <span>屏幕、影像参数换算</span>
+      </a>
+    </nav>
+
+    <header class="result-header derivative-header">
+      <div>
+        <h1>副产物生成器</h1>
+        <p class="muted">按需读取已有材料，生成评测指南、新闻稿或中间资产。</p>
+      </div>
+      <div class="stats">
+        <span>信息源可混合</span>
+        <span>产物按需生成</span>
+        <span>支持二次加工</span>
+      </div>
+    </header>
+
+    <section class="derivative-grid">
+      <section class="panel derivative-inputs">
+        <div class="section-title">
+          <p class="eyebrow">Inputs</p>
+          <h2>原始交付物</h2>
+        </div>
+
+        <label>
+          <span>产品名称</span>
+          <input id="productName" placeholder="某款旗舰手机">
+        </label>
+
+        <label>
+          <span>产品定位</span>
+          <input id="productPosition" placeholder="潮流小数字 / 满分小折 / 科技真旗舰">
+        </label>
+
+        <div class="material-source-grid" aria-label="输入来源">
+          <section class="source-card">
+            <h3>飞书文档</h3>
+            <label>
+              <span>市场白皮书飞书链接</span>
+              <input id="whitepaperUrl" placeholder="https://example.feishu.cn/docx/...">
+            </label>
+            <label>
+              <span>产品简介飞书链接</span>
+              <input id="introUrl" placeholder="https://example.feishu.cn/docx/...">
+            </label>
+            <p class="source-note">可单独提供，也可与本地文件一起作为信息源。</p>
+          </section>
+
+          <section class="source-card">
+            <h3>本地文件</h3>
+            <label>
+              <span>上传市场白皮书</span>
+              <input id="whitepaperUpload" type="file" accept=".docx,.md,.markdown,.pdf,.txt">
+            </label>
+            <label>
+              <span>上传产品简介</span>
+              <input id="introUpload" type="file" accept=".docx,.md,.markdown,.pdf,.txt">
+            </label>
+            <p class="source-note">支持 `.docx`、`.md`、`.markdown`、`.pdf`、`.txt`；PDF 需含文本层，只给一份材料也可生成。</p>
+          </section>
+        </div>
+
+        <div class="control-row">
+          <label>
+            <span>发布信息</span>
+            <input id="launchInfo" placeholder="2025 年 5 月 22 日，国家会议中心">
+          </label>
+          <label>
+            <span>价格 / SKU</span>
+            <input id="priceInfo" placeholder="2999 元起；12+256 / 12+512 / 16+512">
+          </label>
+        </div>
+
+        <section class="output-picker">
+          <span class="field-title">本次生成</span>
+          <div class="output-options">
+            <label class="checkbox-line"><input type="checkbox" name="requestedOutput" value="review" checked> <span>评测指南</span></label>
+            <label class="checkbox-line"><input type="checkbox" name="requestedOutput" value="press" checked> <span>新闻稿</span></label>
+            <label class="checkbox-line"><input type="checkbox" name="requestedOutput" value="asset"> <span>卖点资产表</span></label>
+            <label class="checkbox-line"><input type="checkbox" name="requestedOutput" value="qa"> <span>质检与待确认</span></label>
+          </div>
+        </section>
+
+        <button type="button" id="buildPrompts">模型生成副产物</button>
+        <p class="generation-status" id="generationStatus">选择信息源和本次需要的产物，模型只生成勾选项。</p>
+        <a class="admin-entry" href="#" id="previewResult" hidden>预览本次结果</a>
+      </section>
+
+      <section class="panel prompt-panel">
+        <div class="section-title">
+          <p class="eyebrow">Workflow</p>
+          <h2>生成链路</h2>
+        </div>
+
+        <div class="refine-card">
+          <label>
+            <span>二次加工要求</span>
+            <textarea id="refineInstruction" rows="4" placeholder="例如：评测指南的影像部分再展开，增加可拍样张建议；新闻稿更强调轻薄长续航；删掉过强的行业第一表达。"></textarea>
+          </label>
+          <button type="button" id="refineButton">按要求重新生成</button>
+        </div>
+
+        <div class="model-progress" id="modelProgress" hidden>
+          <div class="progress-bar"><div class="progress-fill" id="modelProgressFill"></div></div>
+          <p id="modelProgressMessage">等待生成</p>
+        </div>
+
+        <div class="prompt-tabs" role="tablist">
+          <button type="button" class="prompt-tab active" data-target="assetPrompt">卖点资产</button>
+          <button type="button" class="prompt-tab" data-target="reviewPrompt">评测指南</button>
+          <button type="button" class="prompt-tab" data-target="pressPrompt">新闻稿</button>
+          <button type="button" class="prompt-tab" data-target="qaPrompt">质检</button>
+        </div>
+
+        <section class="prompt-output active" id="assetPrompt">
+          <div class="output-actions">
+            <h3>卖点资产表</h3>
+            <button type="button" data-copy="assetPromptText">复制</button>
+          </div>
+          <textarea id="assetPromptText" rows="26" placeholder="按需生成的卖点资产表，也可作为其他产物的编辑参考。"></textarea>
+        </section>
+
+        <section class="prompt-output" id="reviewPrompt">
+          <div class="output-actions">
+            <h3>评测指南</h3>
+            <button type="button" data-copy="reviewPromptText">复制</button>
+          </div>
+          <textarea id="reviewPromptText" rows="26" placeholder="这里会生成面向媒体老师的评测指南：有特别注意事项、Part 结构、体验叙事和可拍可测建议。"></textarea>
+        </section>
+
+        <section class="prompt-output" id="pressPrompt">
+          <div class="output-actions">
+            <h3>新闻稿</h3>
+            <button type="button" data-copy="pressPromptText">复制</button>
+          </div>
+          <textarea id="pressPromptText" rows="26" placeholder="这里会生成正式新闻稿，面向公众、媒体和渠道传播。"></textarea>
+        </section>
+
+        <section class="prompt-output" id="qaPrompt">
+          <div class="output-actions">
+            <h3>质检与待确认</h3>
+            <button type="button" data-copy="qaPromptText">复制</button>
+          </div>
+          <textarea id="qaPromptText" rows="26" placeholder="这里会列出需要人工确认的参数、价格、SKU、强表达和风险边界。"></textarea>
+        </section>
+      </section>
+    </section>
+  </main>
+
+  <script src="{{ url_for('static', filename='ui.js') }}"></script>
+  <script>
+    const fields = {
+      productName: document.getElementById("productName"),
+      productPosition: document.getElementById("productPosition"),
+      whitepaperUrl: document.getElementById("whitepaperUrl"),
+      introUrl: document.getElementById("introUrl"),
+      launchInfo: document.getElementById("launchInfo"),
+      priceInfo: document.getElementById("priceInfo")
+    };
+
+    const uploadFields = {
+      whitepaper: document.getElementById("whitepaperUpload"),
+      intro: document.getElementById("introUpload")
+    };
+    const outputChecks = Array.from(document.querySelectorAll("input[name='requestedOutput']"));
+    const generationStatus = document.getElementById("generationStatus");
+    const promptPanel = document.querySelector(".prompt-panel");
+    const buildButton = document.getElementById("buildPrompts");
+    const refineButton = document.getElementById("refineButton");
+    const refineInstruction = document.getElementById("refineInstruction");
+    const modelProgress = document.getElementById("modelProgress");
+    const modelProgressFill = document.getElementById("modelProgressFill");
+    const modelProgressMessage = document.getElementById("modelProgressMessage");
+    const previewResult = document.getElementById("previewResult");
+    const clearSessionButton = document.getElementById("clearSessionButton");
+    let activeDerivativeJob = null;
+    let sessionEpoch = 0;
+    const draftKey = "motoolbox:derivatives:draft";
+    const activeJobKey = "motoolbox:derivatives:active-job";
+    const outputIds = ["assetPromptText", "reviewPromptText", "pressPromptText", "qaPromptText"];
+
+    function assetMarkdown() {
+      return document.getElementById("assetPromptText").value.trim();
+    }
+
+    function baseContext() {
+      return `产品名称：${fields.productName.value || "待补充"}
+产品定位：${fields.productPosition.value || "待补充"}
+发布信息：${fields.launchInfo.value || "待补充"}
+价格 / SKU：${fields.priceInfo.value || "待补充"}
+
+【输入材料】
+输入来源可混合使用：
+
+飞书文档：
+市场白皮书飞书链接：${fields.whitepaperUrl.value || "待补充"}
+产品简介飞书链接：${fields.introUrl.value || "待补充"}
+
+本地文件：
+市场白皮书：${uploadFields.whitepaper.files[0]?.name || "待上传"}
+产品简介：${uploadFields.intro.files[0]?.name || "待上传"}
+
+请先使用飞书 MCP 读取已提供的飞书文档，并读取已提供的本地文件正文，再执行生成任务。没有提供的材料不要向用户追要粘贴正文。`;
+    }
+
+    function buildAssetPrompt() {
+      return `你是一名手机产品市场策略分析专家，擅长从市场白皮书和产品简介中提取可复用的产品传播资产。
+
+你的任务：基于输入的【市场白皮书】和【产品简介】，生成一份结构化“卖点资产表”。这份资产表将作为后续生成【评测指南】和【新闻稿】的中间输入。
+
+核心原则：
+1. 产品简介决定卖点主线和优先级。
+2. 市场白皮书负责补充事实、技术、数据、竞对参照和注意边界。
+3. 不得编造输入材料中不存在的信息。
+4. 内部备注、TBD、风险、灰字、未确认数据不得作为可外发事实。
+5. 风险和限制要进入“注意边界”，不要进入“推荐表达”。
+6. 所有“首发、唯一、最高、最强、行业第一”等强表达，必须标记是否有明确依据。
+
+请输出：
+一、产品基础信息
+二、产品总判断：内部策略 / 媒体评测 / 公众新闻稿
+三、核心卖点资产表：优先级、卖点名称、用户收益、技术/产品支撑、关键数据、竞对参照、推荐表达、注意边界
+四、评测指南转化建议：适合怎么写、怎么拍、怎么测、不建议怎么写
+五、新闻稿转化建议：段落主题、公众表达、可用数据、应删除的信息
+六、禁用与待确认清单
+七、评测指南与新闻稿的推荐卖点排序，并说明差异
+
+${baseContext()}`;
+    }
+
+    function buildReviewPrompt() {
+      return `你是一名手机产品市场内容策划专家，擅长把卖点资产表转化为面向媒体/KOL 的评测指南。
+
+你的任务：基于下方【卖点资产表】和【原始材料】，生成一份“评测指南”。评测指南不是新闻稿，也不是白皮书摘要，而是帮助媒体理解产品、组织评测内容、找到可拍可测可写角度的创作路线图。
+
+核心原则：
+1. 卖点资产表决定主线和卖点排序。
+2. 原始材料只用于核对事实、数据、技术解释和表达边界。
+3. 输出要帮助媒体“怎么测、怎么拍、怎么写”。
+4. 内部备注、TBD、风险、灰字、限制条件，不能直接外发；应转化为评测注意事项。
+5. 所有参数、产品名称、价格、版本、上市时间必须以输入材料为准，不得编造。
+6. 排版遵循 W3C 中文排版相关规范：中文与英文、阿拉伯数字、单位、技术名混排时，补足必要空格。
+7. 涉及“国内”“中国”“回国”等表述时，必须审阅事实依据和立场风险；如材料未明确支持，改成中性表达或提示事实核查。
+
+请按以下结构生成：
+# 特别注意事项
+# 产品总览
+# Part 1：核心卖点一
+# Part 2：核心卖点二
+# Part 3：核心卖点三
+可按卖点扩展到 Part 4 / Part 5。
+# 评测建议清单
+表格字段：评测方向、建议内容、对应卖点、可拍素材、可测指标、注意事项。
+# 参数表
+
+写作风格：面向媒体老师，专业但不生硬；不要写成广告软文；不要暴露内部风险判断、竞品攻击话术或未确认信息。
+
+【卖点资产表】
+${assetMarkdown()}
+
+【原始材料】
+${baseContext()}`;
+    }
+
+    function buildPressPrompt() {
+      return `你是一名消费电子行业新闻稿写作专家，擅长把卖点资产表转化为正式发布新闻稿。
+
+你的任务：基于下方【卖点资产表】和【原始材料】，生成一篇面向公众、媒体、渠道传播的新品发布新闻稿。
+
+核心原则：
+1. 卖点资产表决定新闻稿的主线和卖点排序。
+2. 原始材料提供确定事实、技术支撑、数据证据和参数。
+3. 新闻稿只写确定、可公开、可传播的信息。
+4. 内部备注、TBD、风险、灰字、竞品攻击、未确认数据不得出现在新闻稿中。
+5. 技术细节要转化成用户收益，不要堆工程语言。
+6. 不得编造价格、SKU、时间、认证、首发、唯一、最高等信息。
+7. 如果输入材料缺少发布信息，请用“待补充”占位。
+8. 排版遵循 W3C 中文排版相关规范：中文与英文、阿拉伯数字、单位、技术名混排时，补足必要空格。
+9. 涉及“国内”“中国”“回国”等表述时，必须审阅事实依据和立场风险；如材料未明确支持，改成中性表达或提示事实核查。
+
+请按以下成稿格式生成：
+3-5 个备选标题
+一个正式新闻标题
+新闻正文：标题后直接进入自然段。首段自然交代时间、地点、产品标准名称、定位、核心卖点和已确认的价格/开售信息；后续把整体升级、重点卖点、技术带来的体验收益、版本价格和开售信息自然写进正文。
+
+格式要求：
+1. 保留开头的备选标题区。
+2. 正文不写“一、二、三”“1. 2. 3.”这类章节提示，也不要写“导语：”字段标签。
+3. 不输出 Markdown 表格、参数表、SKU 表、待确认表或附录；所有可公开信息自然成段。
+4. 不把正文写成卖点 bullet list；必要时只少量使用不带编号的短小段间标题。
+
+写作风格：正式、清晰、可信；不要像内部材料，不要像评测指南；不要直接攻击竞品；少用复杂技术原理，多写技术带来的体验改善。
+
+【卖点资产表】
+${assetMarkdown()}
+
+【原始材料】
+${baseContext()}`;
+    }
+
+    function buildQaPrompt() {
+      return `你是一名产品市场内容审校专家，请检查以下评测指南/新闻稿是否存在问题，并给出修订建议。
+
+检查维度：
+1. 产品名称不统一
+2. 参数、价格、时间、SKU 编造或前后不一致
+3. 使用了 TBD、内部备注、灰字、风险判断
+4. 把竞品攻击话术写进公开稿
+5. 把技术点写得过深但没有用户收益
+6. 新闻稿像白皮书摘要
+7. 新闻稿仍是提纲模板：除开头备选标题外，正文出现编号章节、导语字段标签、表格或附录，而不是可直接发布的自然段成稿
+8. 中英/数字/单位混排没有按 W3C 中文排版相关规范补足必要空格
+9. 出现“国内”“中国”“回国”等可能引发地域、国别或立场误读的表述，需要提示事实核查或改成中性表达
+10. 评测指南缺少可拍、可测、可体验建议
+11. 使用了未经证实的“唯一、首发、最强、行业第一”
+12. 遗漏核心卖点
+13. 语气不符合目标文档
+
+请按以下格式输出：
+- 问题位置
+- 问题类型
+- 修改建议
+- 推荐改写
+
+【卖点资产表】
+${assetMarkdown()}
+
+【待检查正文】
+请在这里粘贴评测指南或新闻稿。`;
+    }
+
+    function syncPrompts() {
+      return true;
+    }
+
+    function activatePrompt(targetId = "assetPrompt") {
+      document.querySelectorAll(".prompt-tab").forEach((item) => {
+        item.classList.toggle("active", item.dataset.target === targetId);
+      });
+      document.querySelectorAll(".prompt-output").forEach((item) => {
+        item.classList.toggle("active", item.id === targetId);
+      });
+    }
+
+    function sourceWarning() {
+      return fields.whitepaperUrl.value.trim()
+        || fields.introUrl.value.trim()
+        || uploadFields.whitepaper.files.length
+        || uploadFields.intro.files.length
+        ? "材料已就绪，可调用模型。"
+        : "还缺：至少提供一份飞书文档或本地文件。";
+    }
+
+    function requestedOutputs() {
+      return outputChecks.filter((item) => item.checked).map((item) => item.value);
+    }
+
+    document.getElementById("buildPrompts").addEventListener("click", () => {
+      syncPrompts();
+      startDerivativeGeneration({preserveOutputs: false});
+    });
+
+    refineButton.addEventListener("click", () => {
+      syncPrompts();
+      startDerivativeGeneration({preserveOutputs: true});
+    });
+
+    async function startDerivativeGeneration({preserveOutputs = false} = {}) {
+      const requestEpoch = sessionEpoch;
+      const warning = sourceWarning();
+      if (warning.includes("还缺")) {
+        generationStatus.textContent = warning;
+        return;
+      }
+      if (!requestedOutputs().length) {
+        generationStatus.textContent = "先勾选本次要生成的材料。";
+        return;
+      }
+
+      activatePrompt(firstRequestedPanel());
+      modelProgress.hidden = false;
+      modelProgressFill.style.width = "6%";
+      modelProgressMessage.textContent = "提交生成任务";
+      if (!preserveOutputs) clearGeneratedOutputs(requestedOutputs());
+      generationStatus.textContent = preserveOutputs ? "模型按二次加工要求重新生成。" : "模型开始生成。";
+      buildButton.disabled = true;
+      refineButton.disabled = true;
+      buildButton.textContent = "生成中";
+      promptPanel.classList.remove("prompt-panel-flash");
+      void promptPanel.offsetWidth;
+      promptPanel.classList.add("prompt-panel-flash");
+      promptPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+      document.querySelector(".prompt-output.active textarea")?.focus({ preventScroll: true });
+
+      try {
+        const response = await fetch("/api/derivatives/generate", {
+          method: "POST",
+          body: buildGenerationPayload()
+        });
+        const data = await response.json();
+        if (requestEpoch !== sessionEpoch) return;
+        if (!response.ok || !data.ok) {
+          throw new Error(data.error || "提交失败");
+        }
+        activeDerivativeJob = data.job_id;
+        localStorage.setItem(activeJobKey, data.job_id);
+        saveDraft();
+        pollDerivativeJob(data.job_id);
+      } catch (error) {
+        if (requestEpoch !== sessionEpoch) return;
+        generationStatus.textContent = error.message || "提交失败";
+        modelProgressMessage.textContent = generationStatus.textContent;
+        buildButton.disabled = false;
+        refineButton.disabled = false;
+        buildButton.textContent = "模型生成副产物";
+      }
+    }
+
+    function buildGenerationPayload() {
+      const payload = new FormData();
+      Object.entries({
+        productName: fields.productName.value,
+        productPosition: fields.productPosition.value,
+        whitepaperUrl: fields.whitepaperUrl.value,
+        introUrl: fields.introUrl.value,
+        launchInfo: fields.launchInfo.value,
+        priceInfo: fields.priceInfo.value,
+        assetTable: assetMarkdown(),
+        additionalInstruction: refineInstruction.value,
+        existingAsset: document.getElementById("assetPromptText").value,
+        existingReview: document.getElementById("reviewPromptText").value,
+        existingPress: document.getElementById("pressPromptText").value,
+        existingQa: document.getElementById("qaPromptText").value
+      }).forEach(([key, value]) => payload.append(key, value || ""));
+      requestedOutputs().forEach((output) => payload.append("requestedOutputs", output));
+      if (uploadFields.whitepaper.files[0]) payload.append("whitepaperUpload", uploadFields.whitepaper.files[0]);
+      if (uploadFields.intro.files[0]) payload.append("introUpload", uploadFields.intro.files[0]);
+      return payload;
+    }
+
+    function firstRequestedPanel() {
+      const panels = {asset: "assetPrompt", review: "reviewPrompt", press: "pressPrompt", qa: "qaPrompt"};
+      return panels[requestedOutputs()[0]] || "reviewPrompt";
+    }
+
+    async function pollDerivativeJob(jobId) {
+      try {
+        const response = await fetch(`/api/derivatives/job/${jobId}`);
+        const job = await response.json();
+        if (activeDerivativeJob !== jobId) return;
+        const percent = job.percent || 0;
+        modelProgressFill.style.width = `${percent}%`;
+        modelProgressMessage.textContent = job.message || "处理中";
+        generationStatus.textContent = job.message || "处理中";
+        if (job.preview && !job.sections) {
+          document.getElementById("assetPromptText").value = job.preview;
+          saveDraft();
+        }
+        if (job.status === "done") {
+          fillGeneratedOutputs(job);
+          if (job.preview_url) {
+            previewResult.href = job.preview_url;
+            previewResult.hidden = false;
+          }
+          modelProgressFill.style.width = "100%";
+          buildButton.disabled = false;
+          refineButton.disabled = false;
+          buildButton.textContent = "重新生成副产物";
+          generationStatus.textContent = job.message || "生成完成";
+          localStorage.removeItem(activeJobKey);
+          saveDraft();
+          return;
+        }
+        if (job.status === "error") {
+          buildButton.disabled = false;
+          refineButton.disabled = false;
+          buildButton.textContent = "重试生成";
+          generationStatus.textContent = job.message || "生成失败";
+          modelProgressMessage.textContent = generationStatus.textContent;
+          localStorage.removeItem(activeJobKey);
+          saveDraft();
+          return;
+        }
+        if (job.status === "missing") {
+          buildButton.disabled = false;
+          refineButton.disabled = false;
+          buildButton.textContent = "模型生成副产物";
+          generationStatus.textContent = "上次生成任务已不在内存中，可从历史回溯查看已完成的 Markdown。";
+          modelProgressMessage.textContent = generationStatus.textContent;
+          localStorage.removeItem(activeJobKey);
+          return;
+        }
+        setTimeout(() => pollDerivativeJob(jobId), 1500);
+      } catch (error) {
+        buildButton.disabled = false;
+        refineButton.disabled = false;
+        buildButton.textContent = "重试生成";
+        generationStatus.textContent = error.message || "查询生成状态失败";
+        modelProgressMessage.textContent = generationStatus.textContent;
+      }
+    }
+
+    function clearGeneratedOutputs(outputs) {
+      const ids = {
+        asset: "assetPromptText",
+        review: "reviewPromptText",
+        press: "pressPromptText",
+        qa: "qaPromptText"
+      };
+      outputs.forEach((output) => {
+        const target = document.getElementById(ids[output]);
+        if (target) target.value = "";
+      });
+      saveDraft();
+    }
+
+    function fillGeneratedOutputs(job) {
+      const sections = job.sections || {};
+      if (sections.asset || sections.review || sections.press || sections.qa) {
+        Object.entries({
+          asset: "assetPromptText",
+          review: "reviewPromptText",
+          press: "pressPromptText",
+          qa: "qaPromptText"
+        }).forEach(([key, id]) => {
+          if (sections[key]) document.getElementById(id).value = sections[key];
+        });
+        saveDraft();
+        return;
+      }
+      document.getElementById("assetPromptText").value = job.result || job.preview || "";
+      saveDraft();
+    }
+
+    document.querySelectorAll(".prompt-tab").forEach((tab) => {
+      tab.addEventListener("click", () => {
+        activatePrompt(tab.dataset.target);
+      });
+    });
+
+    document.querySelectorAll("[data-copy]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const target = document.getElementById(button.dataset.copy);
+        const oldText = button.textContent;
+        try {
+          await navigator.clipboard.writeText(target.value);
+          button.textContent = "已复制";
+        } catch (error) {
+          target.focus();
+          target.select();
+          button.textContent = "请手动复制";
+        }
+        setTimeout(() => button.textContent = oldText, 1200);
+      });
+    });
+
+    function saveDraft() {
+      const draft = {
+        requestedOutputs: requestedOutputs(),
+        refineInstruction: refineInstruction.value,
+        fields: Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field.value])),
+        outputs: Object.fromEntries(outputIds.map((id) => [id, document.getElementById(id).value])),
+        previewUrl: previewResult.hidden ? "" : previewResult.href
+      };
+      localStorage.setItem(draftKey, JSON.stringify(draft));
+    }
+
+    function restoreDraft() {
+      const draft = JSON.parse(localStorage.getItem(draftKey) || "{}");
+      outputChecks.forEach((item) => {
+        item.checked = (draft.requestedOutputs || ["review", "press"]).includes(item.value);
+      });
+      Object.entries(draft.fields || {}).forEach(([key, value]) => {
+        if (fields[key]) fields[key].value = value || "";
+      });
+      Object.entries(draft.outputs || {}).forEach(([id, value]) => {
+        const target = document.getElementById(id);
+        if (target) target.value = value || "";
+      });
+      refineInstruction.value = draft.refineInstruction || "";
+      if (draft.previewUrl) {
+        previewResult.href = draft.previewUrl;
+        previewResult.hidden = false;
+      }
+    }
+
+    clearSessionButton.addEventListener("click", async () => {
+      const confirmed = await MOUI.confirm(
+        "将清空当前输入、上传文件、二次加工要求、生成结果和任务关联。历史回溯中的文件不会删除。",
+        {title: "清除当前 Session？", confirmText: "一键清除", danger: true}
+      );
+      if (!confirmed) return;
+
+      sessionEpoch += 1;
+      activeDerivativeJob = null;
+      localStorage.removeItem(draftKey);
+      localStorage.removeItem(activeJobKey);
+      Object.values(fields).forEach((field) => { field.value = ""; });
+      Object.values(uploadFields).forEach((field) => { field.value = ""; });
+      outputChecks.forEach((item) => {
+        item.checked = item.value === "review" || item.value === "press";
+      });
+      outputIds.forEach((id) => { document.getElementById(id).value = ""; });
+      refineInstruction.value = "";
+      previewResult.hidden = true;
+      previewResult.removeAttribute("href");
+      modelProgress.hidden = true;
+      modelProgressFill.style.width = "0%";
+      modelProgressMessage.textContent = "等待生成";
+      buildButton.disabled = false;
+      refineButton.disabled = false;
+      buildButton.textContent = "模型生成副产物";
+      generationStatus.textContent = "Session 已清除，下一次生成将从空白上下文开始。";
+      activatePrompt("reviewPrompt");
+      MOUI.toast("当前 Session 已清除", "success");
+    });
+
+    Object.values(fields).forEach((field) => field.addEventListener("input", () => {
+      syncPrompts();
+      saveDraft();
+    }));
+    [...outputIds.map((id) => document.getElementById(id)), refineInstruction].forEach((field) => {
+      field.addEventListener("input", saveDraft);
+    });
+    outputChecks.forEach((field) => field.addEventListener("change", saveDraft));
+    Object.values(uploadFields).forEach((field) => field.addEventListener("change", () => {
+      syncPrompts();
+      saveDraft();
+    }));
+    restoreDraft();
+    syncPrompts();
+    activeDerivativeJob = localStorage.getItem(activeJobKey);
+    if (activeDerivativeJob) {
+      modelProgress.hidden = false;
+      buildButton.disabled = true;
+      refineButton.disabled = true;
+      buildButton.textContent = "生成中";
+      pollDerivativeJob(activeDerivativeJob);
+    }
+  </script>
+</body>
+</html>

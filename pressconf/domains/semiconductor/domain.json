@@ -1,0 +1,11 @@
+{
+  "name": "芯片/半导体",
+  "description": "CPU、GPU、AI 加速器、SoC、存储、晶圆制造与先进封装发布会",
+  "keywords": ["芯片", "半导体", "处理器", "加速器", "晶圆", "制程", "架构", "核心", "晶体管", "封装", "流片", "代工"],
+  "strong_keywords": ["cpu", "gpu", "npu", "soc", "chiplet", "hbm", "cuda", "rocm", "nvlink", "pcie", "cxl", "gtc", "blackwell", "rubin", "instinct", "epyc", "xeon", "gaudi", "tsmc", "asml", "intel foundry", "晶圆厂", "工艺节点", "先进封装", "tape-out", "tflops", "pflops", "晶体管密度"],
+  "sections": ["产品与平台定位", "架构与制程", "计算性能与测试条件", "功耗与能效", "存储、互连与 I/O", "封装、制造与供应链", "软件栈与开发者生态", "产品矩阵与定价", "量产、出货与客户落地", "竞争与业务判断", "待核实事项", "发布会详情"],
+  "fact_types": ["chip_model", "architecture", "process_node", "transistor_count", "die_size", "core_count", "frequency", "compute", "performance_gain", "benchmark", "memory_capacity", "memory_speed", "bandwidth", "interconnect", "tdp", "power_efficiency", "yield", "production", "availability", "price"],
+  "hotwords": ["CPU", "GPU", "NPU", "SoC", "ASIC", "FPGA", "Chiplet", "Die", "Wafer", "Tape-out", "x86", "Arm", "RISC-V", "Blackwell", "Rubin", "Instinct", "EPYC", "Xeon", "Gaudi", "CUDA", "ROCm", "HBM3E", "HBM4", "GDDR7", "NVLink", "Infinity Fabric", "PCIe", "CXL", "CoWoS", "SoIC", "Foveros", "EMIB", "EUV", "High-NA EUV", "FinFET", "GAA", "Forksheet", "Backside Power Delivery", "TFLOPS", "PFLOPS", "TOPS", "TDP", "TBP", "FP64", "FP32", "TF32", "FP16", "BF16", "FP8", "FP4", "INT8", "INT4", "稀疏算力", "晶体管", "制程节点", "良率", "流片", "量产"],
+  "analyst_role": "芯片、半导体制造与计算平台产业分析师",
+  "guidance": "必须记录芯片型号、架构、制程、封装、核心配置、频率、内存与互连，并严格区分理论峰值、厂商 benchmark、第三方实测和现场 Demo。算力必须保留精度格式、稠密/稀疏、单芯片/单卡/整机及测试基线；功耗必须区分 TDP、TBP、整卡和系统功耗。制程名称不直接等同物理尺寸；区分设计完成、流片、送样、量产、出货和客户部署，并核实良率、产能、价格及供应限制的口径。"
+}

@@ -1,0 +1,9 @@
+<section class="panel admin-card" id="ytdlp">
+  <h2>采集引擎更新</h2>
+  <p>yt-dlp 用于在线视频、直播和字幕采集。遇到版本过旧或网站解析失败时，可在这里更新。</p>
+  <p>当前版本：<strong id="ytdlp-version">读取中…</strong></p>
+  <button type="button" id="ytdlp-update" disabled>更新至最新稳定版</button>
+  <p id="ytdlp-status" role="status" aria-live="polite"></p>
+  <small>从官方发布下载并校验；成功后下一次采集立即生效，无需重启。更新失败会保留原版本。</small>
+</section>
+<script defer src="{{ url_for('static', filename='ytdlp.js') }}"></script>

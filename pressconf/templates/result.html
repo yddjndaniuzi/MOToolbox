@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ display_name }} · 关键帧结果</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='web.css') }}">
+  <script defer src="{{ url_for('static', filename='folders.js') }}"></script>
+</head>
+<body>
+  <main class="review-shell">
+    <header class="result-header">
+      <div>
+        <a class="back-link" href="{{ url_for('index') }}">返回</a>
+        <h1>{{ display_name }}</h1>
+      </div>
+      <div class="stats">
+        {% if finder_available %}<button type="button" data-open-folder="raw" data-folder-slug="{{ slug }}">在访达中打开图包</button>{% endif %}
+        <span>{{ manifest.get("effective_profile", manifest.get("profile", "-")) }}</span>
+        <span>{{ keyframes | length }} 张</span>
+        <a href="{{ url_for('brief_form', slug=slug) }}">生成简报基础稿</a>
+        <a href="{{ url_for('raw_file', filename=slug + '/keyframes.md') }}">Markdown</a>
+        <a href="{{ url_for('raw_file', filename=slug + '/manifest.json') }}">Manifest</a>
+      </div>
+    </header>
+
+    {% if manifest.get("profile_detection") %}
+      <section class="detection">
+        <span>自动判别：{{ manifest.get("effective_profile") }}</span>
+        <span>active {{ manifest["profile_detection"].get("probe_active_ratio") }}</span>
+        <span>strong {{ manifest["profile_detection"].get("probe_strong_ratio") }}</span>
+        <span>p75 {{ manifest["profile_detection"].get("probe_p75_diff") }}</span>
+      </section>
+    {% endif %}
+
+    <nav class="review-toolbar">
+      <div class="segmented">
+        <button type="button" data-filter="all" class="active">全部</button>
+        <button type="button" data-filter="picked">精选</button>
+        <button type="button" data-filter="visible">未隐藏</button>
+      </div>
+      <div class="toolbar-actions">
+        <button type="button" id="copyPicked">复制精选 Markdown</button>
+        <button type="button" id="clearState">清空标记</button>
+      </div>
+    </nav>
+
+    <section class="review-grid" id="reviewGrid">
+      {% for frame in keyframes %}
+        <article
+          class="review-card"
+          data-index="{{ frame.index }}"
+          data-path="{{ frame.path }}"
+          data-timestamp="{{ frame.timestamp }}"
+          data-reason="{{ frame.reason }}"
+          data-diff="{{ frame.diff_score }}"
+        >
+          <img src="{{ url_for('raw_file', filename=slug + '/' + frame.path) }}" alt="keyframe {{ frame.index }}">
+          <div class="card-meta">
+            <strong>#{{ "%04d"|format(frame.index) }}</strong>
+            <span>{{ frame.timestamp }}</span>
+            <span>{{ frame.reason }}</span>
+            <span>diff {{ frame.diff_score }}</span>
+          </div>
+          <div class="card-actions">
+            <button type="button" class="pick-btn">精选</button>
+            <button type="button" class="hide-btn">隐藏</button>
+          </div>
+        </article>
+      {% endfor %}
+    </section>
+  </main>
+
+  <script>
+    const slug = "{{ slug }}";
+    const stateKey = `motoolbox:${slug}:review-state`;
+    const cards = Array.from(document.querySelectorAll(".review-card"));
+    let state = JSON.parse(localStorage.getItem(stateKey) || "{}");
+    let filter = "all";
+
+    function saveState() {
+      localStorage.setItem(stateKey, JSON.stringify(state));
+    }
+
+    function cardState(index) {
+      return state[index] || { picked: false, hidden: false };
+    }
+
+    function render() {
+      cards.forEach((card) => {
+        const index = card.dataset.index;
+        const item = cardState(index);
+        card.classList.toggle("picked", Boolean(item.picked));
+        card.classList.toggle("hidden-card", Boolean(item.hidden));
+        card.querySelector(".pick-btn").textContent = item.picked ? "已精选" : "精选";
+        card.querySelector(".hide-btn").textContent = item.hidden ? "取消隐藏" : "隐藏";
+        const shouldShow =
+          filter === "all" ||
+          (filter === "picked" && item.picked) ||
+          (filter === "visible" && !item.hidden);
+        card.style.display = shouldShow ? "" : "none";
+      });
+    }
+
+    document.querySelectorAll("[data-filter]").forEach((button) => {
+      button.addEventListener("click", () => {
+        filter = button.dataset.filter;
+        document.querySelectorAll("[data-filter]").forEach((item) => item.classList.remove("active"));
+        button.classList.add("active");
+        render();
+      });
+    });
+
+    cards.forEach((card) => {
+      const index = card.dataset.index;
+      card.querySelector(".pick-btn").addEventListener("click", () => {
+        const item = cardState(index);
+        state[index] = { ...item, picked: !item.picked };
+        saveState();
+        render();
+      });
+      card.querySelector(".hide-btn").addEventListener("click", () => {
+        const item = cardState(index);
+        state[index] = { ...item, hidden: !item.hidden };
+        saveState();
+        render();
+      });
+    });
+
+    document.getElementById("clearState").addEventListener("click", () => {
+      state = {};
+      saveState();
+      render();
+    });
+
+    document.getElementById("copyPicked").addEventListener("click", async () => {
+      const picked = cards.filter((card) => cardState(card.dataset.index).picked);
+      const rows = picked.map((card) => {
+        const imagePath = `/raw/${slug}/${card.dataset.path}`;
+        return `- ${card.dataset.timestamp} · #${card.dataset.index} · ${card.dataset.reason}\\n  ![](${imagePath})`;
+      });
+      const text = rows.length ? rows.join("\\n") : "暂无精选截图";
+      await navigator.clipboard.writeText(text);
+    });
+
+    render();
+  </script>
+</body>
+</html>

@@ -1,0 +1,44 @@
+# 华为
+华为
+Huawei
+HarmonyOS
+HarmonyOS NEXT
+原生鸿蒙
+鸿蒙
+盘古大模型
+麒麟
+Kirin
+麒麟芯片
+XMAGE
+昆仑玻璃
+玄武架构
+星闪
+北斗卫星
+天通卫星
+Mate
+Mate X
+Mate X3
+Mate X5
+Mate X6
+Mate X7
+Mate XT
+Mate XTs
+Mate XT 三折叠
+Mate70
+Mate80
+Pura
+Pura 70
+Pura 80
+Pura 90
+Pura X
+Pura X Max
+Pocket
+Pocket 2
+nova
+nova Flip
+nova12
+nova13
+nova15
+相机 Agent
+软硬芯云
+

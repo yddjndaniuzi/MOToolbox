@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MO 工具箱</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='web.css') }}">
+  <script src="{{ url_for('static', filename='ui.js') }}"></script>
+</head>
+<body>
+  <main class="shell">
+    <header class="toolbox-header">
+      <div>
+        <p class="eyebrow">MO Toolbox</p>
+        <h1>MO 工具箱</h1>
+        <p class="muted">发布会简报、副产物生成、媒体反馈、评测视频分析和手机参数速算，一起放在这里。</p>
+      </div>
+      <div class="entry-links"><a class="admin-entry" href="{{ url_for('admin') }}#storage">文件与缓存</a><a class="admin-entry" href="{{ url_for('module_history', module='brief') }}">历史回溯</a><a class="admin-entry" href="{{ url_for('admin') }}">后台控制台</a></div>
+    </header>
+
+    <nav class="tool-tabs" aria-label="MO 工具模块">
+      <a class="tool-tab active" href="{{ url_for('index') }}">
+        <strong>发布会简报</strong>
+        <span>视频采集、关键帧、简报精加工</span>
+      </a>
+      <a class="tool-tab" href="{{ url_for('derivatives') }}">
+        <strong>副产物生成</strong>
+        <span>评测指南、新闻稿、二次加工</span>
+      </a>
+      <a class="tool-tab" href="{{ url_for('feedback') }}">
+        <strong>媒体反馈</strong>
+        <span>问卷表单、观点归纳、风险提示</span>
+      </a>
+      <a class="tool-tab" href="{{ url_for('review_video') }}">
+        <strong>评测视频分析</strong>
+        <span>逐字稿、情感倾向、媒体金句</span>
+      </a>
+      <a class="tool-tab" href="{{ url_for('calculator') }}">
+        <strong>MO 速算器</strong>
+        <span>屏幕、影像参数换算</span>
+      </a>
+    </nav>
+
+    <section class="workspace">
+      <div class="panel form-panel">
+        <header>
+          <p class="eyebrow">PressConf Capture</p>
+          <h1>发布会关键帧采集</h1>
+        </header>
+
+        <form action="{{ url_for('capture') }}" method="post" enctype="multipart/form-data">
+          <label>
+            <span>事件名称</span>
+            <div class="inline-action">
+              <input name="event_name" placeholder="vivo S16 发布会">
+              <button type="button" id="titleLookup">获取标题</button>
+            </div>
+            <input name="source_title" type="hidden">
+            <small id="titleStatus">为空时会尝试从文件名或网页标题自动生成。</small>
+          </label>
+
+          <section class="source-box">
+            <span class="field-title">视频来源</span>
+            <div class="source-options">
+              <label class="radio-line">
+                <input type="radio" name="source_type" value="local" checked>
+                <span>本地文件</span>
+              </label>
+              <label class="radio-line">
+                <input type="radio" name="source_type" value="online">
+                <span>在线视频</span>
+              </label>
+              <label class="radio-line">
+                <input type="radio" name="source_type" value="live">
+                <span>直播流</span>
+              </label>
+            </div>
+
+            <div class="source-panel" data-source-panel="local">
+            <label>
+              <span>本机视频路径</span>
+              <input name="video_path" placeholder="/Users/mi/Downloads/event.mp4">
+              <small>适合已经下载好的录播、剪辑文件或屏幕录制。</small>
+            </label>
+
+            <label>
+              <span>或上传视频</span>
+              <input name="video_file" type="file" accept="video/*">
+              <small>大文件更推荐填本机路径，上传会先复制到工作目录。</small>
+            </label>
+            </div>
+
+            <div class="source-panel" data-source-panel="online">
+            <label>
+              <span>在线视频 URL</span>
+              <input name="online_url" placeholder="https://www.youtube.com/watch?v=...">
+              <small>使用 yt-dlp 下载到本地后再分析，适合 YouTube/B 站等公开视频链接。<a href="{{ url_for('admin') }}#ytdlp">更新采集引擎</a></small>
+            </label>
+            </div>
+
+            <div class="source-panel" data-source-panel="live">
+            <div class="control-row">
+              <label>
+                <span>直播流 URL</span>
+                <input name="live_url" placeholder="https://...">
+                <small>使用 yt-dlp 解析直播直链，实时抽帧并同步录制音视频。</small>
+              </label>
+              <label>
+                <span>自动停止时长（秒，可选）</span>
+                <input name="record_seconds" type="number" min="10" placeholder="留空则手动停止">
+                <small>默认持续采集截图并同步录制音视频，点击停止后生成结果；填写秒数才会自动停止。</small>
+              </label>
+            </div>
+            </div>
+          </section>
+
+          <div class="control-row">
+            <label>
+              <span>业务领域</span>
+              <select name="domain_id">
+                <option value="auto">自动识别</option>
+                {% for domain in domains %}
+                  <option value="{{ domain.id }}">{{ domain.name }}</option>
+                {% endfor %}
+              </select>
+              <small>自动识别会结合标题和转写；人工选择优先。</small>
+            </label>
+            <label>
+              <span>输出任务</span>
+              <select name="task_type">
+                {% for value, label in task_types.items() %}
+                  <option value="{{ value }}" {% if value == 'business_review' %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+          </div>
+
+          <div class="control-row">
+            <label>
+              <span>采图策略</span>
+              <select name="profile">
+                <option value="auto">auto</option>
+                <option value="program">program</option>
+                <option value="lecture">lecture</option>
+              </select>
+            </label>
+            <label>
+              <span>最大宽度</span>
+              <input name="max_width" type="number" value="1600" min="480" step="80">
+            </label>
+          </div>
+
+          <details>
+            <summary>高级参数</summary>
+            <div class="control-row">
+              <label>
+                <span>sample_every</span>
+                <input name="sample_every" type="number" step="0.1" placeholder="按策略默认">
+                <small>每隔多少秒看一帧。数值越小越不容易漏，但处理更慢、候选图更多。</small>
+              </label>
+              <label>
+                <span>diff_threshold</span>
+                <input name="diff_threshold" type="number" step="0.001" placeholder="按策略默认">
+                <small>画面差异达到多少才保留。数值越小越敏感，适合怕漏价格页/参数页。</small>
+              </label>
+            </div>
+            <div class="control-row">
+              <label>
+                <span>min_gap</span>
+                <input name="min_gap" type="number" step="0.5" placeholder="按策略默认">
+                <small>两张保留图之间至少隔几秒。主要影响 program 模式，能减少动态视频里的重复截图。</small>
+              </label>
+              <label>
+                <span>max_frames</span>
+                <input name="max_frames" type="number" min="0" placeholder="0">
+                <small>最多保留多少张候选图。0 表示不设上限，真实发布会建议优先不限制。</small>
+              </label>
+            </div>
+            <label class="checkbox-line checkbox-help">
+              <input name="avoid_speaker_only" type="checkbox" checked>
+              <span>
+                过滤纯演讲者镜头
+                <small>默认跳过高置信度的近景演讲者画面；如果发布会里人物镜头本身是重要素材，可关闭。</small>
+              </span>
+            </label>
+          </details>
+
+          <button type="submit">开始采集</button>
+        </form>
+      </div>
+
+      <aside class="panel jobs-panel">
+        <div class="jobs-header">
+          <h2>最近结果</h2>
+          {% if jobs %}
+            <div class="jobs-actions">
+              <button type="button" id="manageJobs">管理</button>
+              <button type="button" id="deleteSelected" hidden>删除所选</button>
+            </div>
+          {% endif %}
+        </div>
+        {% if jobs %}
+          <div class="job-list">
+            {% for job in jobs %}
+              <div class="job-row">
+                <label class="job-select" hidden>
+                  <input type="checkbox" name="selected_job" value="{{ job.slug }}">
+                </label>
+                <a class="job" href="{{ url_for('result', slug=job.slug) }}">
+                  <strong>{{ job.event_name }}</strong>
+                  <span>{{ job.profile }} · {{ job.count }} 张 · {{ job.duration }}</span>
+                </a>
+                <details class="job-menu">
+                  <summary title="更多操作">⋯</summary>
+                  <form class="delete-job-form" action="{{ url_for('delete_result', slug=job.slug) }}" method="post">
+                    <button type="submit">删除</button>
+                  </form>
+                </details>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="muted">暂无采集结果</p>
+        {% endif %}
+      </aside>
+    </section>
+  </main>
+  <script>
+    const sourceRadios = Array.from(document.querySelectorAll("input[name='source_type']"));
+    const sourcePanels = Array.from(document.querySelectorAll("[data-source-panel]"));
+    const form = document.querySelector("form");
+    const eventNameInput = document.querySelector("input[name='event_name']");
+    const sourceTitleInput = document.querySelector("input[name='source_title']");
+    const titleLookup = document.getElementById("titleLookup");
+    const titleStatus = document.getElementById("titleStatus");
+
+    function syncSourcePanels() {
+      const selected = document.querySelector("input[name='source_type']:checked")?.value || "local";
+      sourcePanels.forEach((panel) => {
+        const isActive = panel.dataset.sourcePanel === selected;
+        panel.hidden = !isActive;
+        panel.querySelectorAll("input, select, textarea").forEach((field) => {
+          field.disabled = !isActive;
+        });
+      });
+    }
+
+    sourceRadios.forEach((radio) => radio.addEventListener("change", syncSourcePanels));
+    syncSourcePanels();
+
+    const submitButton = form.querySelector("button[type='submit']");
+
+    async function lookupTitle() {
+      const restore = MOUI.setButtonLoading(titleLookup, "获取中");
+      titleStatus.textContent = "正在获取标题...";
+      titleStatus.classList.remove("status-error", "status-ok");
+      try {
+        const data = new FormData(form);
+        const response = await fetch("/api/title", { method: "POST", body: data });
+        const payload = await response.json();
+        if (!payload.ok) {
+          const error = payload.error || "标题获取失败";
+          titleStatus.textContent = error;
+          titleStatus.classList.add("status-error");
+          MOUI.toast(error, "error");
+          return "";
+        }
+        sourceTitleInput.value = payload.title;
+        eventNameInput.value = payload.title;
+        titleStatus.textContent = `已获取：${payload.title}`;
+        titleStatus.classList.add("status-ok");
+        MOUI.toast("标题已获取", "success");
+        return payload.title;
+      } catch (err) {
+        titleStatus.textContent = "标题获取失败，请检查网络或链接";
+        titleStatus.classList.add("status-error");
+        MOUI.toast("标题获取失败", "error");
+        return "";
+      } finally {
+        restore();
+      }
+    }
+
+    titleLookup.addEventListener("click", lookupTitle);
+
+    form.addEventListener("submit", async (event) => {
+      if (eventNameInput.value.trim() || sourceTitleInput.value.trim()) {
+        MOUI.setButtonLoading(submitButton, "采集中");
+        return;
+      }
+      event.preventDefault();
+      await lookupTitle();
+      MOUI.setButtonLoading(submitButton, "采集中");
+      form.requestSubmit();
+    });
+
+    document.querySelectorAll(".delete-job-form").forEach((deleteForm) => {
+      deleteForm.addEventListener("submit", async (event) => {
+        if (deleteForm.dataset.confirmed === "true") return;
+        event.preventDefault();
+        const title = deleteForm.closest(".job-row")?.querySelector("strong")?.textContent || "这个结果";
+        const ok = await MOUI.confirm(`删除「${title}」及其所有截图？此操作不可撤销。`, {
+          title: "删除采集结果",
+          confirmText: "删除",
+          danger: true,
+        });
+        if (ok) {
+          deleteForm.dataset.confirmed = "true";
+          deleteForm.submit();
+        }
+      });
+    });
+
+    const manageJobs = document.getElementById("manageJobs");
+    const deleteSelected = document.getElementById("deleteSelected");
+    let managingJobs = false;
+
+    function syncManageMode() {
+      document.querySelectorAll(".job-select").forEach((item) => {
+        item.hidden = !managingJobs;
+      });
+      document.querySelectorAll(".job-menu").forEach((item) => {
+        item.hidden = managingJobs;
+      });
+      if (manageJobs) {
+        manageJobs.textContent = managingJobs ? "完成" : "管理";
+      }
+      if (deleteSelected) {
+        deleteSelected.hidden = !managingJobs;
+      }
+    }
+
+    manageJobs?.addEventListener("click", () => {
+      managingJobs = !managingJobs;
+      syncManageMode();
+    });
+
+    deleteSelected?.addEventListener("click", async () => {
+      const selected = Array.from(document.querySelectorAll("input[name='selected_job']:checked"));
+      if (!selected.length) {
+        MOUI.toast("先勾选要删除的结果。", "info");
+        return;
+      }
+      const ok = await MOUI.confirm(`删除选中的 ${selected.length} 个结果及其所有截图？此操作不可撤销。`, {
+        title: "批量删除",
+        confirmText: "删除",
+        danger: true,
+      });
+      if (!ok) return;
+      const restore = MOUI.setButtonLoading(deleteSelected, "删除中");
+      const data = new FormData();
+      selected.forEach((item) => data.append("slugs", item.value));
+      try {
+        await fetch("/results/delete", { method: "POST", body: data });
+        window.location.reload();
+      } catch (err) {
+        restore();
+        MOUI.toast("删除失败，请重试", "error");
+      }
+    });
+
+    syncManageMode();
+  </script>
+</body>
+</html>

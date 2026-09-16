@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MOtoolbox 速算器</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='web.css') }}">
+</head>
+<body>
+  <main class="calculator-shell">
+    <header class="toolbox-header">
+      <div>
+        <p class="eyebrow">MO Toolbox</p>
+        <h1>MO 工具箱</h1>
+        <p class="muted">发布会简报、副产物生成、媒体反馈、评测视频分析和手机参数速算，一起放在这里。</p>
+      </div>
+      <a class="admin-entry" href="{{ url_for('admin') }}">后台控制台</a>
+    </header>
+
+    <nav class="tool-tabs" aria-label="MO 工具模块">
+      <a class="tool-tab" href="{{ url_for('index') }}">
+        <strong>发布会简报</strong>
+        <span>视频采集、关键帧、简报精加工</span>
+      </a>
+      <a class="tool-tab" href="{{ url_for('derivatives') }}">
+        <strong>副产物生成</strong>
+        <span>评测指南、新闻稿、二次加工</span>
+      </a>
+      <a class="tool-tab" href="{{ url_for('feedback') }}">
+        <strong>媒体反馈</strong>
+        <span>问卷表单、观点归纳、风险提示</span>
+      </a>
+      <a class="tool-tab" href="{{ url_for('review_video') }}">
+        <strong>评测视频分析</strong>
+        <span>逐字稿、情感倾向、媒体金句</span>
+      </a>
+      <a class="tool-tab active" href="{{ url_for('calculator') }}">
+        <strong>MO 速算器</strong>
+        <span>屏幕、影像参数换算</span>
+      </a>
+    </nav>
+
+    <header class="result-header calculator-header">
+      <div>
+        <h1>MO 速算器</h1>
+        <p class="muted">把手机参数里常见的临时计算收进一个页面：输入规格，直接得到可引用的数值和公式。</p>
+      </div>
+      <div class="stats">
+        <span>屏幕</span>
+        <span>影像</span>
+      </div>
+    </header>
+
+    <section class="calculator-layout">
+      <aside class="panel calculator-index">
+        <div class="section-title">
+          <p class="eyebrow">Formula Set</p>
+          <h2>常算参数</h2>
+        </div>
+        <div class="formula-list">
+          <a href="#screen">屏幕 PPI / 物理尺寸</a>
+          <a href="#screen-content">内容显示利用率</a>
+          <a href="#camera-lens">镜头与视场反推</a>
+          <a href="#camera-pixel">像素尺寸 / 合并像素</a>
+          <a href="#camera-light">两颗镜头进光量对比</a>
+          <a href="#camera-crop">裁切变焦剩余像素</a>
+        </div>
+        <p class="source-note">注：影像里的“等效”默认按全画幅 43.27 mm 对角线作为参照。手机厂商常写的传感器“1/x 英寸型”并不等于真实物理英寸，建议优先输入已查到的 mm 宽高。</p>
+      </aside>
+
+      <section class="calculator-grid" aria-label="MO 速算器列表">
+        <article class="panel calc-card" id="screen" data-calc="screen">
+          <div class="calc-card-header">
+            <div>
+              <p class="eyebrow">Display</p>
+              <h2>屏幕 PPI 与物理尺寸</h2>
+            </div>
+            <span>ppi = sqrt(w²+h²)/inch</span>
+          </div>
+          <div class="calc-fields">
+            <label><span>横向像素</span><input data-field="pxW" type="number" value="1220"></label>
+            <label><span>纵向像素</span><input data-field="pxH" type="number" value="2712"></label>
+            <label><span>对角线（英寸）</span><input data-field="inch" type="number" step="0.01" value="6.67"></label>
+          </div>
+          <div class="calc-result"></div>
+          <p class="calc-note">还能反推屏幕可视宽高。Pentile 折算按 RGBG 平均 2 子像素相对 RGB 3 子像素估算，即 PPI × sqrt(2/3)，只作为文字边缘细腻度的快速参考。</p>
+        </article>
+
+        <article class="panel calc-card" id="screen-content" data-calc="screenContent">
+          <div class="calc-card-header">
+            <div>
+              <p class="eyebrow">Display</p>
+              <h2>内容显示利用率对比</h2>
+            </div>
+            <span>A fit area / B fit area</span>
+          </div>
+          <div class="calc-field-groups">
+            <div class="calc-group calc-group-content">
+              <h3>内容比例</h3>
+              <div class="calc-fields">
+                <label><span>比例宽</span><input data-field="contentRatioW" type="number" step="0.01" value="16"></label>
+                <label><span>比例高</span><input data-field="contentRatioH" type="number" step="0.01" value="9"></label>
+              </div>
+            </div>
+
+            <div class="calc-compare-fields">
+              <div class="calc-group">
+                <h3>A 屏幕</h3>
+                <div class="calc-fields">
+                  <label><span>比例宽</span><input data-field="screenRatioWA" type="number" step="0.01" value="20"></label>
+                  <label><span>比例高</span><input data-field="screenRatioHA" type="number" step="0.01" value="9"></label>
+                  <label><span>尺寸（英寸）</span><input data-field="inchA" type="number" step="0.01" value="6.67"></label>
+                </div>
+              </div>
+
+              <div class="calc-group">
+                <h3>B 屏幕</h3>
+                <div class="calc-fields">
+                  <label><span>比例宽</span><input data-field="screenRatioWB" type="number" step="0.01" value="19.5"></label>
+                  <label><span>比例高</span><input data-field="screenRatioHB" type="number" step="0.01" value="9"></label>
+                  <label><span>尺寸（英寸）</span><input data-field="inchB" type="number" step="0.01" value="6.1"></label>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="calc-result"></div>
+          <p class="calc-note">屏幕总面积按比例与对角线尺寸计算；内容有效面积按完整显示、不裁切的 contain 模式计算。适合比较同一段 16:9 视频、4:3 照片、21:9 电影在两台手机上的实际显示面积。</p>
+        </article>
+
+        <article class="panel calc-card" id="camera-lens" data-calc="cameraLens">
+          <div class="calc-card-header">
+            <div>
+              <p class="eyebrow">Camera</p>
+              <h2>镜头与视场反推</h2>
+            </div>
+            <span>actual = eq / crop</span>
+          </div>
+          <div class="calc-fields">
+            <label><span>等效焦距（mm）</span><input data-field="eqFocal" type="number" step="0.1" value="24"></label>
+            <label><span>光圈 F</span><input data-field="fNumber" type="number" step="0.01" value="1.63"></label>
+            <label><span>传感器宽（mm）</span><input data-field="width" type="number" step="0.01" value="9.6"></label>
+            <label><span>传感器高（mm）</span><input data-field="height" type="number" step="0.01" value="7.2"></label>
+          </div>
+          <div class="calc-result"></div>
+          <p class="calc-note">从官网最常见的等效焦距、F 值、传感器尺寸，反推实际焦距、视场角、等效光圈和入瞳口径。</p>
+        </article>
+
+        <article class="panel calc-card" id="camera-pixel" data-calc="cameraPixel">
+          <div class="calc-card-header">
+            <div>
+              <p class="eyebrow">Camera</p>
+              <h2>像素尺寸与合并像素</h2>
+            </div>
+            <span>pitch = width / pixel width</span>
+          </div>
+          <div class="calc-fields">
+            <label><span>传感器宽（mm）</span><input data-field="width" type="number" step="0.01" value="9.6"></label>
+            <label><span>传感器高（mm）</span><input data-field="height" type="number" step="0.01" value="7.2"></label>
+            <label><span>传感器像素（MP）</span><input data-field="mp" type="number" step="0.1" value="50"></label>
+            <label><span>画幅比例宽</span><input data-field="ratioW" type="number" step="1" value="4"></label>
+            <label><span>画幅比例高</span><input data-field="ratioH" type="number" step="1" value="3"></label>
+            <label><span>合并边长倍数</span><input data-field="binning" type="number" step="1" value="2"></label>
+          </div>
+          <div class="calc-result"></div>
+          <p class="calc-note">适合从“1/1.3 型、5000 万像素”这类规格反推 1.0 μm、四合一 2.0 μm 等口径。</p>
+        </article>
+
+        <article class="panel calc-card" id="camera-light" data-calc="cameraLight">
+          <div class="calc-card-header">
+            <div>
+              <p class="eyebrow">Camera</p>
+              <h2>两颗镜头进光量对比</h2>
+            </div>
+            <span>ratio = type diagonal² / F²</span>
+          </div>
+          <div class="calc-fields">
+            <label><span>A 传感器型别（1/x）</span><input data-field="typeA" type="number" step="0.01" value="1.3"></label>
+            <label><span>A 光圈 F</span><input data-field="fA" type="number" step="0.01" value="1.63"></label>
+            <label><span>B 传感器型别（1/x）</span><input data-field="typeB" type="number" step="0.01" value="1.56"></label>
+            <label><span>B 光圈 F</span><input data-field="fB" type="number" step="0.01" value="1.8"></label>
+          </div>
+          <div class="calc-result"></div>
+          <p class="calc-note">输入“1/1.3 型”时填 1.3。这个算法用型别对角线的平方近似面积，适合手机规格表之间做相对比较；T 值、裁切、多帧合成不在公式内。</p>
+        </article>
+
+        <article class="panel calc-card" id="camera-crop" data-calc="cameraCrop">
+          <div class="calc-card-header">
+            <div>
+              <p class="eyebrow">Camera</p>
+              <h2>裁切变焦剩余像素</h2>
+            </div>
+            <span>mp left = mp / crop²</span>
+          </div>
+          <div class="calc-fields">
+            <label><span>原生等效焦距（mm）</span><input data-field="nativeEq" type="number" step="0.1" value="24"></label>
+            <label><span>目标等效焦距（mm）</span><input data-field="targetEq" type="number" step="0.1" value="48"></label>
+            <label><span>原生像素（MP）</span><input data-field="mp" type="number" step="0.1" value="50"></label>
+            <label><span>传感器宽（mm）</span><input data-field="width" type="number" step="0.01" value="9.6"></label>
+            <label><span>传感器高（mm）</span><input data-field="height" type="number" step="0.01" value="7.2"></label>
+          </div>
+          <div class="calc-result"></div>
+          <p class="calc-note">用于判断“主摄 2x 裁切”“长焦继续裁切”还剩多少有效像素和传感器使用面积。</p>
+        </article>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const FULL_FRAME_DIAGONAL = 43.27;
+    const FULL_FRAME_AREA = 36 * 24;
+
+    function num(card, name) {
+      return Number(card.querySelector(`[data-field="${name}"]`)?.value || 0);
+    }
+
+    function fmt(value, digits = 2) {
+      if (!Number.isFinite(value)) return "待输入";
+      return Number(value.toFixed(digits)).toLocaleString("zh-CN");
+    }
+
+    function safeDivide(top, bottom) {
+      return bottom ? top / bottom : NaN;
+    }
+
+    function gcd(a, b) {
+      let x = Math.abs(Math.round(a));
+      let y = Math.abs(Math.round(b));
+      while (y) {
+        const next = x % y;
+        x = y;
+        y = next;
+      }
+      return x || 1;
+    }
+
+    function formatRatioPart(value) {
+      return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(1)));
+    }
+
+    function formatDecimalRatioPart(value) {
+      return Number.isInteger(value) ? String(value) : value.toFixed(1);
+    }
+
+    function approximateAspectRatio(pxW, pxH) {
+      const longSide = Math.max(pxW, pxH);
+      const shortSide = Math.min(pxW, pxH);
+      const ratio = safeDivide(longSide, shortSide);
+      if (!Number.isFinite(ratio) || ratio <= 0) return "待输入";
+
+      const scaledToNine = ratio * 9;
+      const roundedHalf = Math.round(scaledToNine * 2) / 2;
+      if (Math.abs(scaledToNine - roundedHalf) <= 0.08) {
+        if (Number.isInteger(roundedHalf)) {
+          const divisor = gcd(roundedHalf, 9);
+          return `${formatRatioPart(roundedHalf / divisor)}:${formatRatioPart(9 / divisor)}`;
+        }
+        return `${formatDecimalRatioPart(roundedHalf)}:9`;
+      }
+
+      let bestNumerator = Math.round(ratio);
+      let bestDenominator = 1;
+      let bestError = Math.abs(ratio - bestNumerator);
+      for (let denominator = 1; denominator <= 32; denominator += 1) {
+        const numerator = Math.max(1, Math.round(ratio * denominator));
+        const error = Math.abs(ratio - numerator / denominator);
+        if (error < bestError) {
+          bestNumerator = numerator;
+          bestDenominator = denominator;
+          bestError = error;
+        }
+      }
+      const divisor = gcd(bestNumerator, bestDenominator);
+      return `${bestNumerator / divisor}:${bestDenominator / divisor}`;
+    }
+
+    function degrees(radians) {
+      return radians * 180 / Math.PI;
+    }
+
+    function fov(size, focal) {
+      return degrees(2 * Math.atan(safeDivide(size, 2 * focal)));
+    }
+
+    function sensorMetrics(width, height) {
+      const diagonal = Math.hypot(width, height);
+      return {
+        diagonal,
+        area: width * height,
+        crop: safeDivide(FULL_FRAME_DIAGONAL, diagonal)
+      };
+    }
+
+    function contentFitMetrics(screenRatioW, screenRatioH, inch, contentRatioW, contentRatioH) {
+      const screenAspect = safeDivide(screenRatioW, screenRatioH);
+      const contentAspect = safeDivide(contentRatioW, contentRatioH);
+      const diagonalMm = inch * 25.4;
+      const screenHeight = safeDivide(diagonalMm, Math.hypot(screenAspect, 1));
+      const screenWidth = screenHeight * screenAspect;
+      const screenArea = screenWidth * screenHeight;
+      const contentWidth = contentAspect > screenAspect ? screenWidth : screenHeight * contentAspect;
+      const contentHeight = contentAspect > screenAspect ? safeDivide(screenWidth, contentAspect) : screenHeight;
+      const contentArea = contentWidth * contentHeight;
+      return {
+        screenWidth,
+        screenHeight,
+        screenArea,
+        contentWidth,
+        contentHeight,
+        contentArea,
+        utilization: safeDivide(contentArea, screenArea),
+        equivalentInch: safeDivide(Math.hypot(contentWidth, contentHeight), 25.4)
+      };
+    }
+
+    function compareAreas(areaA, areaB) {
+      const signedDifference = areaA - areaB;
+      let comparison = "待输入";
+      if (areaA > 0 && areaB > 0) {
+        if (Math.abs(signedDifference) < 0.001) {
+          comparison = "A 与 B 相同";
+        } else if (signedDifference > 0) {
+          comparison = `A 比 B 大 ${fmt(safeDivide(signedDifference, areaB) * 100, 1)}%`;
+        } else {
+          comparison = `B 比 A 大 ${fmt(safeDivide(-signedDifference, areaA) * 100, 1)}%`;
+        }
+      }
+      return {
+        difference: Math.abs(signedDifference),
+        ratio: safeDivide(areaA, areaB),
+        comparison
+      };
+    }
+
+    function result(items) {
+      return items.map((item) => `<div><span>${item.label}</span><strong>${item.value}</strong></div>`).join("");
+    }
+
+    const calculators = {
+      screen(card) {
+        const pxW = num(card, "pxW");
+        const pxH = num(card, "pxH");
+        const inch = num(card, "inch");
+        const diagonalPx = Math.hypot(pxW, pxH);
+        const ppi = diagonalPx / inch;
+        const pentilePpi = ppi * Math.sqrt(2 / 3);
+        const widthInch = pxW / ppi;
+        const heightInch = pxH / ppi;
+        return result([
+          { label: "像素对角线", value: `${fmt(diagonalPx, 0)} px` },
+          { label: "长宽比例", value: approximateAspectRatio(pxW, pxH) },
+          { label: "像素密度", value: `${fmt(ppi, 1)} ppi` },
+          { label: "Pentile 折算 PPI", value: `${fmt(pentilePpi, 1)} ppi` },
+          { label: "可视宽度", value: `${fmt(widthInch * 25.4, 1)} mm` },
+          { label: "可视高度", value: `${fmt(heightInch * 25.4, 1)} mm` },
+          { label: "显示面积", value: `${fmt(widthInch * heightInch * 645.16, 0)} mm²` }
+        ]);
+      },
+      screenContent(card) {
+        const contentRatioW = num(card, "contentRatioW");
+        const contentRatioH = num(card, "contentRatioH");
+        const a = contentFitMetrics(
+          num(card, "screenRatioWA"),
+          num(card, "screenRatioHA"),
+          num(card, "inchA"),
+          contentRatioW,
+          contentRatioH
+        );
+        const b = contentFitMetrics(
+          num(card, "screenRatioWB"),
+          num(card, "screenRatioHB"),
+          num(card, "inchB"),
+          contentRatioW,
+          contentRatioH
+        );
+        const screenAreaComparison = compareAreas(a.screenArea, b.screenArea);
+        const contentAreaComparison = compareAreas(a.contentArea, b.contentArea);
+        return result([
+          { label: "A 屏幕总面积", value: `${fmt(a.screenArea, 0)} mm²` },
+          { label: "B 屏幕总面积", value: `${fmt(b.screenArea, 0)} mm²` },
+          { label: "屏幕总面积差", value: `${fmt(screenAreaComparison.difference, 0)} mm²` },
+          { label: "屏幕总面积对比", value: screenAreaComparison.comparison },
+          { label: "A / B 屏幕总面积", value: `${fmt(screenAreaComparison.ratio, 2)}×` },
+          { label: "A 内容有效面积", value: `${fmt(a.contentArea, 0)} mm²` },
+          { label: "B 内容有效面积", value: `${fmt(b.contentArea, 0)} mm²` },
+          { label: "内容有效面积差", value: `${fmt(contentAreaComparison.difference, 0)} mm²` },
+          { label: "内容有效面积对比", value: contentAreaComparison.comparison },
+          { label: "A / B 内容有效面积", value: `${fmt(contentAreaComparison.ratio, 2)}×` },
+          { label: "A 利用率", value: `${fmt(a.utilization * 100, 1)}%` },
+          { label: "B 利用率", value: `${fmt(b.utilization * 100, 1)}%` },
+          { label: "A 等效尺寸", value: `${fmt(a.equivalentInch, 2)} 英寸` },
+          { label: "B 等效尺寸", value: `${fmt(b.equivalentInch, 2)} 英寸` },
+          { label: "A 有效宽高", value: `${fmt(a.contentWidth, 1)} × ${fmt(a.contentHeight, 1)} mm` },
+          { label: "B 有效宽高", value: `${fmt(b.contentWidth, 1)} × ${fmt(b.contentHeight, 1)} mm` }
+        ]);
+      },
+      cameraLens(card) {
+        const eqFocal = num(card, "eqFocal");
+        const fNumber = num(card, "fNumber");
+        const width = num(card, "width");
+        const height = num(card, "height");
+        const sensor = sensorMetrics(width, height);
+        const actualFocal = safeDivide(eqFocal, sensor.crop);
+        const pupilDiameter = safeDivide(actualFocal, fNumber);
+        return result([
+          { label: "裁切系数", value: `${fmt(sensor.crop, 2)}×` },
+          { label: "实际焦距", value: `${fmt(actualFocal, 2)} mm` },
+          { label: "水平视场角", value: `${fmt(fov(width, actualFocal), 1)}°` },
+          { label: "垂直视场角", value: `${fmt(fov(height, actualFocal), 1)}°` },
+          { label: "对角视场角", value: `${fmt(fov(sensor.diagonal, actualFocal), 1)}°` },
+          { label: "全画幅等效光圈", value: `F${fmt(fNumber * sensor.crop, 1)}` },
+          { label: "入瞳直径", value: `${fmt(pupilDiameter, 2)} mm` },
+          { label: "传感器面积", value: `${fmt(sensor.area, 1)} mm²` }
+        ]);
+      },
+      cameraPixel(card) {
+        const width = num(card, "width");
+        const height = num(card, "height");
+        const mp = num(card, "mp");
+        const ratioW = num(card, "ratioW");
+        const ratioH = num(card, "ratioH");
+        const binning = num(card, "binning");
+        const totalPixels = mp * 1000000;
+        const pixelW = Math.sqrt(safeDivide(totalPixels * ratioW, ratioH));
+        const pixelH = safeDivide(pixelW * ratioH, ratioW);
+        const pitchW = safeDivide(width * 1000, pixelW);
+        const pitchH = safeDivide(height * 1000, pixelH);
+        const pitch = (pitchW + pitchH) / 2;
+        return result([
+          { label: "估算分辨率", value: `${fmt(pixelW, 0)} × ${fmt(pixelH, 0)}` },
+          { label: "单像素边长", value: `${fmt(pitch, 2)} μm` },
+          { label: "单像素面积", value: `${fmt(pitch ** 2, 2)} μm²` },
+          { label: "合并后边长", value: `${fmt(pitch * binning, 2)} μm` },
+          { label: "合并后面积", value: `${fmt((pitch * binning) ** 2, 2)} μm²` },
+          { label: "像素密度", value: `${fmt(safeDivide(mp, width * height), 2)} MP/mm²` }
+        ]);
+      },
+      cameraLight(card) {
+        const typeA = num(card, "typeA");
+        const fA = num(card, "fA");
+        const typeB = num(card, "typeB");
+        const fB = num(card, "fB");
+        const diagonalA = safeDivide(16, typeA);
+        const diagonalB = safeDivide(16, typeB);
+        const areaRatio = (diagonalA / diagonalB) ** 2;
+        const apertureRatio = (fB / fA) ** 2;
+        const indexA = safeDivide(diagonalA ** 2, fA ** 2);
+        const indexB = safeDivide(diagonalB ** 2, fB ** 2);
+        const ratio = safeDivide(indexA, indexB);
+        return result([
+          { label: "A 估算对角线", value: `${fmt(diagonalA, 2)} mm` },
+          { label: "B 估算对角线", value: `${fmt(diagonalB, 2)} mm` },
+          { label: "面积比例 A / B", value: `${fmt(areaRatio, 2)}×` },
+          { label: "光圈增益 A / B", value: `${fmt(apertureRatio, 2)}×` },
+          { label: "A / B 总进光", value: `${fmt(ratio, 2)}×` },
+          { label: "A / B EV 差", value: `${fmt(Math.log2(ratio), 2)} EV` }
+        ]);
+      },
+      cameraCrop(card) {
+        const nativeEq = num(card, "nativeEq");
+        const targetEq = num(card, "targetEq");
+        const mp = num(card, "mp");
+        const width = num(card, "width");
+        const height = num(card, "height");
+        const cropRatio = Math.max(1, safeDivide(targetEq, nativeEq));
+        const activeWidth = safeDivide(width, cropRatio);
+        const activeHeight = safeDivide(height, cropRatio);
+        const activeAreaRatio = safeDivide(1, cropRatio ** 2);
+        return result([
+          { label: "裁切倍率", value: `${fmt(cropRatio, 2)}×` },
+          { label: "剩余像素", value: `${fmt(mp * activeAreaRatio, 1)} MP` },
+          { label: "使用面积比例", value: `${fmt(activeAreaRatio * 100, 1)}%` },
+          { label: "有效传感器宽", value: `${fmt(activeWidth, 2)} mm` },
+          { label: "有效传感器高", value: `${fmt(activeHeight, 2)} mm` },
+          { label: "有效传感器面积", value: `${fmt(activeWidth * activeHeight, 1)} mm²` }
+        ]);
+      }
+    };
+
+    function updateCard(card) {
+      const key = card.dataset.calc;
+      const target = card.querySelector(".calc-result");
+      target.innerHTML = calculators[key](card);
+    }
+
+    document.querySelectorAll(".calc-card").forEach((card) => {
+      card.addEventListener("input", () => updateCard(card));
+      updateCard(card);
+    });
+  </script>
+</body>
+</html>

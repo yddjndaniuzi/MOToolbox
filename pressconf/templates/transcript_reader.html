@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} - 逐字稿查阅</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='web.css') }}">
+</head>
+<body>
+  <main class="transcript-reader-shell">
+    <header class="result-header transcript-reader-header">
+      <div>
+        <p class="eyebrow">Review Video Lab</p>
+        <h1>{{ title }}</h1>
+        <p class="muted">逐字稿查阅实验功能</p>
+      </div>
+      <div class="stats">
+        <a class="admin-entry" href="{{ back_url }}">返回分析报告</a>
+        {% if reader.get("meta", {}).get("polished") %}<span>ASR 精校</span>{% endif %}
+        {% if reader.get("segments") %}<span>{{ reader.get("segments")|length }} 段</span>{% endif %}
+      </div>
+    </header>
+
+    {% if not reader.get("segments") or not video_url %}
+      <section class="panel empty-preview">
+        <h2>还没有可查阅的逐字稿</h2>
+        <p class="muted">该任务需要带时间轴的转写和可播放的本地视频。请重新生成一次评测视频分析。</p>
+      </section>
+    {% else %}
+      <section class="transcript-reader-grid">
+        <section class="panel transcript-video-panel">
+          <video id="reviewVideo" controls preload="metadata" src="{{ video_url }}"></video>
+          <div class="transcript-current">
+            <span id="currentTime">00:00</span>
+            <strong id="currentExcerpt">选择逐字稿段落即可定位视频。</strong>
+          </div>
+        </section>
+
+        <section class="panel transcript-panel" aria-label="逐字稿时间轴">
+          <div class="section-title">
+            <p class="eyebrow">Transcript</p>
+            <h2>逐字稿时间轴</h2>
+          </div>
+          <div class="transcript-segments" id="transcriptSegments"></div>
+        </section>
+      </section>
+    {% endif %}
+  </main>
+
+  {% if reader.get("segments") and video_url %}
+    <script id="readerData" type="application/json">{{ reader.get("segments")|tojson }}</script>
+    <script>
+      const video = document.getElementById("reviewVideo");
+      const transcriptSegments = document.getElementById("transcriptSegments");
+      const currentTime = document.getElementById("currentTime");
+      const currentExcerpt = document.getElementById("currentExcerpt");
+      const segments = JSON.parse(document.getElementById("readerData").textContent || "[]");
+      const formatter = new Intl.NumberFormat("en-US", { minimumIntegerDigits: 2 });
+
+      function timeLabel(value) {
+        const seconds = Math.max(0, Math.floor(Number(value) || 0));
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        const rest = seconds % 60;
+        return hours ? `${formatter.format(hours)}:${formatter.format(minutes)}:${formatter.format(rest)}` : `${formatter.format(minutes)}:${formatter.format(rest)}`;
+      }
+
+      function activeSegmentAt(time) {
+        return segments.find((segment) => time >= segment.start && (segment.end <= segment.start || time < segment.end))
+          || segments.reduce((nearest, segment) => time >= segment.start ? segment : nearest, segments[0]);
+      }
+
+      function setActive(target) {
+        transcriptSegments.querySelectorAll("[data-segment]").forEach((node) => {
+          const active = node.dataset.segment === String(target.index);
+          node.classList.toggle("active", active);
+          if (active && document.activeElement !== node) node.scrollIntoView({ block: "nearest" });
+        });
+        currentExcerpt.textContent = target.text;
+      }
+
+      segments.forEach((segment) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "transcript-segment";
+        button.dataset.segment = segment.index;
+        button.dataset.start = segment.start;
+
+        const timeline = document.createElement("span");
+        timeline.textContent = `${timeLabel(segment.start)}${segment.end > segment.start ? ` - ${timeLabel(segment.end)}` : ""}`;
+        const text = document.createElement("strong");
+        text.textContent = segment.text;
+        button.append(timeline, text);
+        transcriptSegments.append(button);
+      });
+
+      transcriptSegments.addEventListener("click", (event) => {
+        const target = event.target.closest("[data-segment]");
+        if (!target) return;
+        video.currentTime = Number(target.dataset.start) || 0;
+        video.play();
+        setActive(segments.find((segment) => String(segment.index) === target.dataset.segment));
+      });
+
+      video.addEventListener("timeupdate", () => {
+        currentTime.textContent = timeLabel(video.currentTime);
+        setActive(activeSegmentAt(video.currentTime));
+      });
+      setActive(segments[0]);
+    </script>
+  {% endif %}
+</body>
+</html>

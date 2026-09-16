@@ -1,0 +1,11 @@
+{
+  "name": "汽车",
+  "description": "新车、智能驾驶、座舱与汽车技术发布会",
+  "keywords": ["汽车", "车型", "新车", "智驾", "座舱", "续航", "底盘", "交付", "增程", "纯电"],
+  "strong_keywords": ["cltc", "wltc", "800v", "激光雷达", "城市noa", "辅助驾驶", "轴距", "预售价"],
+  "sections": ["核心判断", "车型与版本矩阵", "价格及权益", "动力续航与补能", "智驾与座舱", "空间底盘与安全", "交付节奏", "待核实事项", "发布会详情"],
+  "fact_types": ["vehicle_model", "trim", "price", "range", "battery", "charging", "power", "dimensions", "adas", "delivery", "safety"],
+  "hotwords": ["CLTC", "WLTC", "800V", "增程", "纯电", "智驾", "城市NOA", "激光雷达", "座舱", "轴距", "预售价", "交付"],
+  "analyst_role": "汽车行业产品、市场与智能化竞情分析师",
+  "guidance": "严格区分 CLTC/WLTC、预售价/正式售价/权益后价格、标配/选配/订阅；智驾必须说明适用范围和能力边界。"
+}

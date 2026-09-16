@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MOtoolbox 后台控制台</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='web.css') }}">
+  <script defer src="{{ url_for('static', filename='folders.js') }}"></script>
+</head>
+<body>
+  <main class="admin-shell">
+    <aside class="admin-nav">
+      <a class="back-link" href="{{ url_for('index') }}">返回工具</a>
+      <h1>后台控制台</h1>
+      <nav>
+        <a href="#ytdlp">采集引擎更新</a>
+        <a href="#storage">文件与缓存</a>
+        <a href="#models">模型配置</a>
+        <a href="#lark">飞书绑定</a>
+        <a href="#knowledge">知识库</a>
+        <a href="#agents">Agent 预留</a>
+      </nav>
+    </aside>
+
+    <section class="admin-main">
+      {% include "ytdlp_update.html" %}
+      <section class="panel admin-card" id="storage">
+        <h2>文件与缓存</h2>
+        <p>图包目录包含截图、转写和简报；下载缓存、上传文件用于保留视频等源文件。</p>
+        {% for key, item in storage_locations.items() %}
+        <div class="storage-location">
+          <div><strong>{{ item[0] }}</strong><code>{{ item[1] }}</code></div>
+          {% if finder_available %}<button type="button" data-open-folder="{{ key }}">在访达中打开</button>{% endif %}
+        </div>
+        {% endfor %}
+      </section>
+      <section class="panel admin-card" id="models">
+        <div class="admin-card-header">
+          <div>
+            <p class="eyebrow">Models</p>
+            <h2>模型配置</h2>
+          </div>
+          <span class="admin-pill">API Key：{{ secret_mask }}</span>
+        </div>
+        <form action="{{ url_for('admin_model_save') }}" method="post">
+          {% set saved_provider_tab = model.get('provider_tab', '') %}
+          {% set provider = model.get('provider', 'openai-compatible') %}
+          {% set anthropic_protocol = provider in ['anthropic', 'claude'] or provider.endswith('-anthropic') %}
+          {% set provider_tab = saved_provider_tab if saved_provider_tab in model_presets else ('custom_anthropic' if anthropic_protocol else 'custom_openai') %}
+          <div class="model-presets" data-model-presets='{{ model_presets | tojson }}'>
+            <button type="button" data-preset="deepseek" class="{% if provider_tab == 'deepseek' %}active{% endif %}">DeepSeek（推荐）</button>
+            <button type="button" data-preset="custom_openai" class="{% if provider_tab == 'custom_openai' %}active{% endif %}">自定义 OpenAI 协议</button>
+            <button type="button" data-preset="custom_anthropic" class="{% if provider_tab == 'custom_anthropic' %}active{% endif %}">自定义 Anthropic 协议</button>
+          </div>
+          <div class="model-current" id="modelCurrent" aria-live="polite">
+            <span class="model-current-label">当前保存</span>
+            <strong data-current-tab></strong>
+            <span data-current-provider></span>
+            <code data-current-model></code>
+            <span data-current-base></span>
+          </div>
+          <input type="hidden" name="provider_tab" value="{{ provider_tab }}">
+          <div class="control-row">
+            <label>
+              <span>配置 ID</span>
+              <input name="id" value="{{ model.get('id', 'deepseek-v4-pro') }}" placeholder="例如 internal-writing-model">
+            </label>
+            <label>
+              <span>显示名称</span>
+              <input name="name" value="{{ model.get('name', 'DeepSeek V4 Pro') }}" placeholder="例如企业写作模型">
+            </label>
+          </div>
+          <input type="hidden" name="provider" value="{{ provider }}">
+          <div class="control-row">
+            <label class="custom-protocol-field" {% if provider_tab not in ['custom_openai', 'custom_anthropic'] %}hidden{% endif %}>
+              <span>自定义协议</span>
+              <select name="custom_protocol">
+                <option value="openai-compatible" {% if not anthropic_protocol %}selected{% endif %}>OpenAI 协议</option>
+                <option value="anthropic" {% if anthropic_protocol %}selected{% endif %}>Anthropic 协议</option>
+              </select>
+            </label>
+            <label>
+              <span>Model ID</span>
+              <input name="model" value="{{ model.get('model', 'deepseek-v4-pro') }}" placeholder="例如 vendor/model-name">
+            </label>
+          </div>
+          <label>
+            <span>Base URL</span>
+            <input name="base_url" value="{{ model.get('base_url', 'https://api.deepseek.com') }}" placeholder="例如 https://api.example.com/v1">
+          </label>
+          <div class="control-row">
+            <label>
+              <span>Secret Ref</span>
+              <input name="secret_ref" value="{{ model.get('secret_ref', 'deepseek_api_key') }}">
+            </label>
+            <label>
+              <span>API Key</span>
+              <input name="api_key" type="password" placeholder="留空则不覆盖现有 Key">
+            </label>
+          </div>
+          <div class="admin-checks">
+            {% set uses = model.get('uses', []) %}
+            <label class="radio-line"><input type="checkbox" name="use_brief_refine" {% if 'brief_refine' in uses %}checked{% endif %}> <span>简报精加工</span></label>
+            <label class="radio-line"><input type="checkbox" name="use_writing" {% if 'writing' in uses %}checked{% endif %}> <span>通用写作</span></label>
+            <label class="radio-line"><input type="checkbox" name="use_image_match" {% if 'image_match' in uses %}checked{% endif %}> <span>图文匹配</span></label>
+            <label class="radio-line"><input type="checkbox" name="use_knowledge_rag" {% if 'knowledge_rag' in uses %}checked{% endif %}> <span>知识库 RAG</span></label>
+          </div>
+          <button type="submit">保存模型配置</button>
+        </form>
+      </section>
+
+      <section class="panel admin-card" id="lark">
+        <div class="admin-card-header">
+          <div>
+            <p class="eyebrow">Lark MCP</p>
+            <h2>飞书文档写入</h2>
+          </div>
+          <span class="admin-pill">{{ "授权可用" if lark_status.configured else lark_status.message }}</span>
+        </div>
+        <form action="{{ url_for('admin_lark_save') }}" method="post">
+          <div class="admin-checks">
+            <label class="radio-line"><input type="checkbox" name="enabled" {% if lark_config.get('enabled', True) %}checked{% endif %}> <span>启用写入飞书文档</span></label>
+          </div>
+          <div class="control-row">
+            <label>
+              <span>写入通道</span>
+              <select name="transport">
+                <option value="mcp_http" {% if lark_config.get('transport') == 'mcp_http' %}selected{% endif %}>MCP HTTP / JSON-RPC</option>
+                <option value="lark_cli" {% if lark_config.get('transport') == 'lark_cli' %}selected{% endif %}>lark-cli 兜底</option>
+              </select>
+            </label>
+            <label>
+              <span>JSON-RPC Method</span>
+              <input name="mcp_method" value="{{ lark_config.get('mcp_method', 'tools/call') }}" placeholder="例如 tools/call / docx.create">
+            </label>
+          </div>
+          <div class="control-row">
+            <label>
+              <span>MCP Tool Name</span>
+              <input name="mcp_tool" value="{{ lark_config.get('mcp_tool', 'create-doc') }}" placeholder="例如 create-doc">
+            </label>
+            <label>
+              <span>MCP URL</span>
+              <input name="mcp_url" value="{{ lark_config.get('mcp_url', '') }}" placeholder="https://.../mcp">
+            </label>
+          </div>
+          <div class="control-row">
+            <label>
+              <span>Headers JSON</span>
+              <textarea name="mcp_headers" rows="5" spellcheck="false">{{ lark_config.get('mcp_headers', '{}') }}</textarea>
+            </label>
+            <label>
+              <span>参数 JSON 模板</span>
+              <textarea name="mcp_arguments" rows="5" spellcheck="false">{{ lark_config.get('mcp_arguments', '') }}</textarea>
+            </label>
+          </div>
+          <label>
+            <span>图片公共 URL 前缀</span>
+            <input name="image_url_base" value="{{ lark_config.get('image_url_base', '') }}" placeholder="例如 https://assets.example.com/pressconf/raw">
+          </label>
+          <div class="control-row">
+            <label>
+              <span>公共图床</span>
+              <select name="image_upload_provider">
+                <option value="none" {% if lark_config.get('image_upload_provider') == 'none' %}selected{% endif %}>不自动上传</option>
+                <option value="imgbb" {% if lark_config.get('image_upload_provider') == 'imgbb' %}selected{% endif %}>ImgBB</option>
+              </select>
+            </label>
+            <label>
+              <span>ImgBB 过期时间（秒）</span>
+              <input name="imgbb_expiration" value="{{ lark_config.get('imgbb_expiration', '604800') }}" placeholder="604800">
+            </label>
+          </div>
+          <label>
+            <span>图片每行数量</span>
+            <input name="image_grid_columns" type="number" min="1" max="4" value="{{ lark_config.get('image_grid_columns', '4') }}">
+          </label>
+          <label>
+            <span>ImgBB API Key</span>
+            <input name="imgbb_api_key" type="password" placeholder="{% if lark_config.get('imgbb_api_key') %}已配置，留空不覆盖{% else %}https://api.imgbb.com/{% endif %}">
+          </label>
+          <label>
+            <span>临时图床 Token</span>
+            <input name="image_host_token" value="{{ lark_config.get('image_host_token', '') }}">
+          </label>
+          <label>
+            <span>完整 Payload JSON 模板（可选，填写后覆盖 Method/Tool/参数的默认封装）</span>
+            <textarea name="mcp_payload" rows="7" spellcheck="false">{{ lark_config.get('mcp_payload', '') }}</textarea>
+          </label>
+          <div class="admin-note">
+            <span>当前飞书 MCP 已探测到写文档工具为 <code>create-doc</code>；默认会通过 <code>tools/call</code> 调用它。</span>
+            <span>飞书 MCP 只接受可访问的图片 URL；配置图片公共 URL 前缀后，会把 <code>frames/xxx.jpg</code> 转成 <code>&lt;image url="..."/&gt;</code> 写入。临时隧道场景建议填 <code>https://你的隧道域名/tmp-images/{{ lark_config.get('image_host_token', '') }}</code>。</span>
+            <span>连续图片会按「图片每行数量」合并成飞书分栏，最多每行 4 张。</span>
+            <span>如果选择 ImgBB，导出时会自动上传本次简报用到的截图并缓存 URL；图片公共 URL 前缀优先级高于自动上传。</span>
+            <span><code>mcpServers</code> 这种连接配置不用填到 Payload；Payload 只在服务要求非标准请求体时才需要。</span>
+            <span>模板可用 <code>{{ "{{title}}" }}</code>、<code>{{ "{{markdown}}" }}</code>、<code>{{ "{{source}}" }}</code>、<code>{{ "{{slug}}" }}</code>、<code>{{ "{{tool}}" }}</code>、<code>{{ "{{method}}" }}</code>、<code>{{ "{{arguments}}" }}</code>。</span>
+            <span>如果临时需要用本机 CLI，可以切到 lark-cli 兜底，并继续使用下方位置配置。</span>
+          </div>
+          <details class="admin-advanced">
+            <summary>lark-cli 兜底参数</summary>
+            <div class="control-row">
+              <label>
+                <span>调用身份</span>
+                <select name="identity">
+                  <option value="user" {% if lark_config.get('identity') == 'user' %}selected{% endif %}>user</option>
+                  <option value="bot" {% if lark_config.get('identity') == 'bot' %}selected{% endif %}>bot</option>
+                </select>
+              </label>
+              <label>
+                <span>写入位置</span>
+                <select name="target_type">
+                  <option value="default" {% if lark_config.get('target_type') == 'default' %}selected{% endif %}>默认位置</option>
+                  <option value="folder" {% if lark_config.get('target_type') == 'folder' %}selected{% endif %}>指定云空间文件夹</option>
+                  <option value="wiki" {% if lark_config.get('target_type') == 'wiki' %}selected{% endif %}>指定知识库节点</option>
+                </select>
+              </label>
+            </div>
+            <label>
+              <span>Folder Token</span>
+              <input name="folder_token" value="{{ lark_config.get('folder_token', '') }}" placeholder="写入云空间文件夹时填写">
+            </label>
+            <div class="control-row">
+              <label>
+                <span>Wiki Space ID</span>
+                <input name="wiki_space" value="{{ lark_config.get('wiki_space', '') }}" placeholder="写入知识库时填写">
+              </label>
+              <label>
+                <span>Wiki Node Token</span>
+                <input name="wiki_node" value="{{ lark_config.get('wiki_node', '') }}" placeholder="可选">
+              </label>
+            </div>
+          </details>
+          <button type="submit">保存飞书绑定</button>
+        </form>
+      </section>
+
+      <section class="panel admin-card" id="knowledge">
+        <div class="admin-card-header">
+          <div>
+            <p class="eyebrow">Knowledge</p>
+            <h2>产品简报数据库</h2>
+          </div>
+          <span class="admin-pill">{{ knowledge_index.get("document_count", 0) }} 篇</span>
+        </div>
+        <form action="{{ url_for('admin_knowledge_save') }}" method="post">
+          <label>
+            <span>知识库名称</span>
+            <input name="name" value="{{ knowledge_config.get('name') }}">
+          </label>
+          <label>
+            <span>Obsidian Vault 路径</span>
+            <input name="vault_path" value="{{ knowledge_config.get('vault_path') }}">
+          </label>
+          <label>
+            <span>索引子目录</span>
+            <input name="include_subdir" value="{{ knowledge_config.get('include_subdir') }}" placeholder="pressconf-database">
+          </label>
+          <button type="submit">保存知识库配置</button>
+        </form>
+        <form action="{{ url_for('admin_knowledge_reindex') }}" method="post" class="admin-inline-form">
+          <button type="submit">重建索引</button>
+          <span class="muted">最近索引：{{ knowledge_index.get("built_at", "尚未索引") }}</span>
+        </form>
+
+        <form action="{{ url_for('admin') }}" method="get" class="admin-search">
+          <input name="q" value="{{ search_query }}" placeholder="搜索：vivo S20 / Reno / Magic V / 价格">
+          <button type="submit">搜索测试</button>
+        </form>
+
+        {% if search_results %}
+          <div class="knowledge-results">
+            {% for item in search_results %}
+              <article class="knowledge-item">
+                <strong>{{ item.title }}</strong>
+                <span>score {{ item.score }} · {{ item.relative_path }}</span>
+                <p>{{ item.overview_excerpt }}</p>
+              </article>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </section>
+
+      <section class="panel admin-card" id="agents">
+        <div class="admin-card-header">
+          <div>
+            <p class="eyebrow">Agents</p>
+            <h2>能力预留</h2>
+          </div>
+        </div>
+        <div class="agent-slots">
+          <span>发布会采图</span>
+          <span>ASR / 字幕</span>
+          <span>简报精加工</span>
+          <span>图文匹配</span>
+          <span>知识库 RAG</span>
+          <span>舆情监控</span>
+          <span>产品文档生成</span>
+        </div>
+      </section>
+    </section>
+  </main>
+  <script>
+    (() => {
+      const container = document.querySelector(".model-presets");
+      if (!container) return;
+      const presets = JSON.parse(container.dataset.modelPresets || "{}");
+      const form = container.closest("form");
+      const customProtocol = form.querySelector(".custom-protocol-field");
+      const current = form.querySelector("#modelCurrent");
+      const fields = ["id", "name", "provider", "base_url", "model", "secret_ref"];
+      const customTabs = new Set(["custom_openai", "custom_anthropic"]);
+      const tabLabels = {
+        deepseek: "DeepSeek（推荐）",
+        custom_openai: "自定义 OpenAI 协议",
+        custom_anthropic: "自定义 Anthropic 协议",
+      };
+      const providerLabels = {
+        "openai-compatible": "OpenAI 协议",
+        openai: "OpenAI 协议",
+        anthropic: "Anthropic 协议",
+      };
+
+      function activateTab(tabName) {
+        container.querySelectorAll("[data-preset]").forEach((button) => {
+          button.classList.toggle("active", button.dataset.preset === tabName);
+        });
+        customProtocol.hidden = !customTabs.has(tabName);
+      }
+
+      function refreshCurrent(label = "当前保存") {
+        const tabName = form.elements.provider_tab.value || "deepseek";
+        const provider = form.elements.provider.value || "openai-compatible";
+        current.querySelector(".model-current-label").textContent = label;
+        current.querySelector("[data-current-tab]").textContent = tabLabels[tabName] || tabName;
+        current.querySelector("[data-current-provider]").textContent = providerLabels[provider] || provider;
+        current.querySelector("[data-current-model]").textContent = form.elements.model.value || "未填写 Model ID";
+        current.querySelector("[data-current-base]").textContent = form.elements.base_url.value || "未填写 Base URL";
+      }
+
+      container.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-preset]");
+        if (!button) return;
+        const preset = presets[button.dataset.preset] || {};
+        form.elements.provider_tab.value = button.dataset.preset;
+        fields.forEach((name) => {
+          if (Object.prototype.hasOwnProperty.call(preset, name)) {
+            form.elements[name].value = preset[name];
+          }
+        });
+        if (customTabs.has(button.dataset.preset)) {
+          form.elements.custom_protocol.value = preset.provider || "openai-compatible";
+        }
+        activateTab(button.dataset.preset);
+        refreshCurrent("当前选择");
+        if (customTabs.has(button.dataset.preset) && !preset.base_url) {
+          form.elements.base_url.focus();
+        }
+      });
+
+      form.elements.custom_protocol.addEventListener("change", () => {
+        if (customTabs.has(form.elements.provider_tab.value)) {
+          form.elements.provider.value = form.elements.custom_protocol.value;
+        }
+        refreshCurrent("当前选择");
+      });
+
+      ["model", "base_url", "provider"].forEach((name) => {
+        form.elements[name].addEventListener("input", () => refreshCurrent("当前选择"));
+        form.elements[name].addEventListener("change", () => refreshCurrent("当前选择"));
+      });
+
+      activateTab(form.elements.provider_tab.value);
+      refreshCurrent();
+    })();
+  </script>
+</body>
+</html>

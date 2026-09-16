@@ -1,0 +1,39 @@
+# 芯片 / 通信 / 组件
+骁龙
+Snapdragon
+第二代骁龙 8
+第三代骁龙 8
+骁龙 8 Gen 2
+骁龙 8 Gen 3
+骁龙 8 Elite
+天玑
+Dimensity
+天玑 9000
+天玑 9300
+天玑 9400
+天玑 9500
+麒麟
+Kirin
+麒麟芯片
+A 系列芯片
+M 系列芯片
+NPU
+SoC
+V1
+V2
+V3
+C1 芯片
+蓝图影像芯片
+卫星通信
+北斗卫星
+天通卫星
+eSIM
+星闪
+Wi-Fi
+UWB
+LPDDR5
+LPDDR5X
+LPDDR5T
+UFS 4.0
+USB 3
+

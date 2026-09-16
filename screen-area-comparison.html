@@ -1,0 +1,816 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>屏幕面积与内容利用率对比</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: #20231f;
+      background: #f2f0e9;
+      --page: #f2f0e9;
+      --panel: #fffefa;
+      --soft: #f7f5ed;
+      --line: #d9d6cb;
+      --text: #20231f;
+      --muted: #6c7068;
+      --a: #167d74;
+      --a-soft: #dff1ed;
+      --b: #c65c32;
+      --b-soft: #f8e7df;
+      --focus: #2b61c9;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      min-width: 320px;
+      margin: 0;
+      background: var(--page);
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    main {
+      width: min(1120px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 40px 0 64px;
+    }
+
+    header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 24px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      margin-bottom: 10px;
+      font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+      font-size: clamp(30px, 5vw, 48px);
+      line-height: 1.08;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin-bottom: 6px;
+      font-size: 20px;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin-bottom: 0;
+      font-size: 16px;
+      letter-spacing: 0;
+    }
+
+    .intro {
+      max-width: 720px;
+      margin-bottom: 0;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.65;
+    }
+
+    .formula {
+      flex: 0 0 auto;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--soft);
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 11px;
+    }
+
+    .inputs {
+      margin-top: 24px;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .content-ratio {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 24px;
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .section-copy p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .ratio-fields,
+    .field-row {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .ratio-fields {
+      width: min(360px, 100%);
+    }
+
+    label {
+      display: grid;
+      gap: 7px;
+      color: #4f534d;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    input {
+      width: 100%;
+      height: 44px;
+      min-width: 0;
+      padding: 0 12px;
+      border: 1px solid #c9c6bb;
+      border-radius: 6px;
+      outline: none;
+      background: #fff;
+      color: var(--text);
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    input:focus {
+      border-color: var(--focus);
+      box-shadow: 0 0 0 3px rgba(43, 97, 201, 0.13);
+    }
+
+    .screen-inputs {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      margin-top: 18px;
+    }
+
+    .screen-input {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-top-width: 4px;
+      border-radius: 6px;
+      background: var(--soft);
+    }
+
+    .screen-input.a {
+      border-top-color: var(--a);
+    }
+
+    .screen-input.b {
+      border-top-color: var(--b);
+    }
+
+    .screen-input h3 {
+      margin-bottom: 14px;
+    }
+
+    .screen-input .size-field {
+      grid-column: 1 / -1;
+    }
+
+    .results {
+      margin-top: 30px;
+    }
+
+    .diagram-section {
+      margin-top: 30px;
+    }
+
+    .diagram-heading {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 14px;
+    }
+
+    .diagram-heading p {
+      margin-bottom: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .diagram-panel {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .diagram-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .legend-swatch {
+      width: 18px;
+      height: 12px;
+      border: 2px solid #747871;
+      border-radius: 2px;
+      background: #e6e4dd;
+    }
+
+    .legend-swatch.content {
+      border-color: var(--a);
+      background: var(--a-soft);
+    }
+
+    .screen-diagram {
+      display: block;
+      width: 100%;
+      height: auto;
+      overflow: visible;
+    }
+
+    .screen-diagram text {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    .results-heading {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 14px;
+    }
+
+    .results-heading p {
+      margin-bottom: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .reversal {
+      display: none;
+      margin-bottom: 14px;
+      padding: 13px 15px;
+      border-left: 4px solid #2b61c9;
+      background: #e7eefc;
+      color: #203d78;
+      font-size: 14px;
+      font-weight: 800;
+      line-height: 1.5;
+    }
+
+    .reversal.visible {
+      display: block;
+    }
+
+    .comparison-list {
+      display: grid;
+      gap: 14px;
+    }
+
+    .comparison {
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .comparison-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .comparison-head strong {
+      font-size: 17px;
+    }
+
+    .comparison-head span {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+      text-align: right;
+    }
+
+    .bar-list {
+      display: grid;
+      gap: 11px;
+    }
+
+    .bar-row {
+      display: grid;
+      grid-template-columns: 24px minmax(0, 1fr) 116px;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .bar-row > b {
+      font-size: 13px;
+    }
+
+    .bar-track {
+      height: 20px;
+      overflow: hidden;
+      border-radius: 4px;
+      background: #e7e5dc;
+    }
+
+    .bar {
+      height: 100%;
+      min-width: 2px;
+      transition: width 180ms ease;
+    }
+
+    .bar.a {
+      background: var(--a);
+    }
+
+    .bar.b {
+      background: var(--b);
+    }
+
+    .bar-value {
+      font-variant-numeric: tabular-nums;
+      font-size: 14px;
+      font-weight: 800;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .screen-summaries {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      margin-top: 16px;
+    }
+
+    .summary {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      overflow: hidden;
+    }
+
+    .summary h3 {
+      padding: 13px 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .summary.a h3 {
+      background: var(--a-soft);
+      color: #0c5f57;
+    }
+
+    .summary.b h3 {
+      background: var(--b-soft);
+      color: #8d3d20;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .metric {
+      min-height: 86px;
+      padding: 14px 16px;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .metric:nth-child(even) {
+      border-right: 0;
+    }
+
+    .metric:nth-last-child(-n + 2) {
+      border-bottom: 0;
+    }
+
+    .metric span {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 19px;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+
+    .note {
+      margin: 18px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.65;
+    }
+
+    @media (max-width: 760px) {
+      main {
+        width: min(100% - 24px, 1120px);
+        padding-top: 24px;
+      }
+
+      header,
+      .content-ratio,
+      .diagram-heading,
+      .results-heading {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .formula {
+        align-self: flex-start;
+      }
+
+      .ratio-fields {
+        width: 100%;
+      }
+
+      .screen-inputs,
+      .screen-summaries {
+        grid-template-columns: 1fr;
+      }
+
+      .bar-row {
+        grid-template-columns: 22px minmax(0, 1fr) 98px;
+      }
+
+      .bar-value {
+        font-size: 12px;
+      }
+    }
+
+    @media (max-width: 420px) {
+      .inputs,
+      .diagram-panel,
+      .comparison {
+        padding: 14px;
+      }
+
+      .comparison-head {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 5px;
+      }
+
+      .comparison-head span {
+        text-align: left;
+      }
+
+      .metrics {
+        grid-template-columns: 1fr;
+      }
+
+      .metric,
+      .metric:nth-child(even),
+      .metric:nth-last-child(-n + 2) {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .metric:last-child {
+        border-bottom: 0;
+      }
+    }
+
+    @media print {
+      body {
+        background: #fff;
+      }
+
+      main {
+        width: 100%;
+        padding: 0;
+      }
+
+      .inputs {
+        break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="eyebrow">MO Display Calculator</p>
+        <h1>屏幕面积与内容利用率对比</h1>
+        <p class="intro">输入两块屏幕的比例与对角线尺寸，同时比较屏幕物理总面积，以及指定比例内容完整显示时的实际有效面积。</p>
+      </div>
+      <span class="formula">contain fit · area in mm²</span>
+    </header>
+
+    <section class="inputs" aria-labelledby="input-title">
+      <div class="content-ratio">
+        <div class="section-copy">
+          <h2 id="input-title">参数输入</h2>
+          <p>内容按完整显示、不裁切计算。</p>
+        </div>
+        <div class="ratio-fields">
+          <label>内容比例宽<input data-field="contentRatioW" type="number" min="0" step="0.01" value="16"></label>
+          <label>内容比例高<input data-field="contentRatioH" type="number" min="0" step="0.01" value="9"></label>
+        </div>
+      </div>
+
+      <div class="screen-inputs">
+        <section class="screen-input a" aria-labelledby="screen-a-title">
+          <h3 id="screen-a-title">A 屏幕</h3>
+          <div class="field-row">
+            <label>比例宽<input data-field="screenRatioWA" type="number" min="0" step="0.01" value="20"></label>
+            <label>比例高<input data-field="screenRatioHA" type="number" min="0" step="0.01" value="9"></label>
+            <label class="size-field">对角线尺寸（英寸）<input data-field="inchA" type="number" min="0" step="0.01" value="6.67"></label>
+          </div>
+        </section>
+
+        <section class="screen-input b" aria-labelledby="screen-b-title">
+          <h3 id="screen-b-title">B 屏幕</h3>
+          <div class="field-row">
+            <label>比例宽<input data-field="screenRatioWB" type="number" min="0" step="0.01" value="19.5"></label>
+            <label>比例高<input data-field="screenRatioHB" type="number" min="0" step="0.01" value="9"></label>
+            <label class="size-field">对角线尺寸（英寸）<input data-field="inchB" type="number" min="0" step="0.01" value="6.1"></label>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section class="diagram-section" aria-labelledby="diagram-title">
+      <div class="diagram-heading">
+        <div>
+          <p class="eyebrow">Display Preview</p>
+          <h2 id="diagram-title">内容显示示意</h2>
+        </div>
+        <p>两块屏幕按物理尺寸同比例绘制。</p>
+      </div>
+      <div class="diagram-panel">
+        <div class="diagram-legend" aria-hidden="true">
+          <span class="legend-item"><span class="legend-swatch"></span>屏幕总区域</span>
+          <span class="legend-item"><span class="legend-swatch content"></span>内容有效区域</span>
+        </div>
+        <svg class="screen-diagram" data-diagram viewBox="0 0 1000 410" role="img" aria-label="A 与 B 两块屏幕显示指定比例内容的尺寸示意"></svg>
+      </div>
+    </section>
+
+    <section class="results" aria-labelledby="results-title" aria-live="polite">
+      <div class="results-heading">
+        <div>
+          <p class="eyebrow">Comparison</p>
+          <h2 id="results-title">面积关系</h2>
+        </div>
+        <p>总面积大，不一定代表指定内容显示得更大。</p>
+      </div>
+
+      <div class="reversal" data-output="reversal"></div>
+
+      <div class="comparison-list">
+        <article class="comparison">
+          <div class="comparison-head">
+            <strong>屏幕物理总面积</strong>
+            <span data-output="screenComparison">待输入</span>
+          </div>
+          <div class="bar-list">
+            <div class="bar-row"><b>A</b><div class="bar-track"><div class="bar a" data-bar="screenA"></div></div><span class="bar-value" data-output="screenAreaA">待输入</span></div>
+            <div class="bar-row"><b>B</b><div class="bar-track"><div class="bar b" data-bar="screenB"></div></div><span class="bar-value" data-output="screenAreaB">待输入</span></div>
+          </div>
+        </article>
+
+        <article class="comparison">
+          <div class="comparison-head">
+            <strong>内容有效显示面积</strong>
+            <span data-output="contentComparison">待输入</span>
+          </div>
+          <div class="bar-list">
+            <div class="bar-row"><b>A</b><div class="bar-track"><div class="bar a" data-bar="contentA"></div></div><span class="bar-value" data-output="contentAreaA">待输入</span></div>
+            <div class="bar-row"><b>B</b><div class="bar-track"><div class="bar b" data-bar="contentB"></div></div><span class="bar-value" data-output="contentAreaB">待输入</span></div>
+          </div>
+        </article>
+      </div>
+
+      <div class="screen-summaries">
+        <article class="summary a">
+          <h3>A 屏幕明细</h3>
+          <div class="metrics">
+            <div class="metric"><span>内容利用率</span><strong data-output="utilizationA">待输入</strong></div>
+            <div class="metric"><span>内容等效尺寸</span><strong data-output="equivalentA">待输入</strong></div>
+            <div class="metric"><span>屏幕物理宽高</span><strong data-output="screenSizeA">待输入</strong></div>
+            <div class="metric"><span>内容有效宽高</span><strong data-output="contentSizeA">待输入</strong></div>
+          </div>
+        </article>
+
+        <article class="summary b">
+          <h3>B 屏幕明细</h3>
+          <div class="metrics">
+            <div class="metric"><span>内容利用率</span><strong data-output="utilizationB">待输入</strong></div>
+            <div class="metric"><span>内容等效尺寸</span><strong data-output="equivalentB">待输入</strong></div>
+            <div class="metric"><span>屏幕物理宽高</span><strong data-output="screenSizeB">待输入</strong></div>
+            <div class="metric"><span>内容有效宽高</span><strong data-output="contentSizeB">待输入</strong></div>
+          </div>
+        </article>
+      </div>
+
+      <p class="note">计算口径：屏幕总面积由屏幕比例与对角线尺寸反推；内容有效面积采用 contain 模式，即完整显示内容且不裁切。单位换算按 1 英寸 = 25.4 mm。</p>
+    </section>
+  </main>
+
+  <script>
+    const field = (name) => Number(document.querySelector(`[data-field="${name}"]`)?.value || 0);
+
+    function safeDivide(top, bottom) {
+      return bottom ? top / bottom : NaN;
+    }
+
+    function fmt(value, digits = 1) {
+      if (!Number.isFinite(value)) return "待输入";
+      return Number(value.toFixed(digits)).toLocaleString("zh-CN");
+    }
+
+    function screenMetrics(ratioW, ratioH, inch, contentRatioW, contentRatioH) {
+      const screenAspect = safeDivide(ratioW, ratioH);
+      const contentAspect = safeDivide(contentRatioW, contentRatioH);
+      const diagonalMm = inch * 25.4;
+      const screenHeight = safeDivide(diagonalMm, Math.hypot(screenAspect, 1));
+      const screenWidth = screenHeight * screenAspect;
+      const screenArea = screenWidth * screenHeight;
+      const contentWidth = contentAspect > screenAspect ? screenWidth : screenHeight * contentAspect;
+      const contentHeight = contentAspect > screenAspect ? safeDivide(screenWidth, contentAspect) : screenHeight;
+      const contentArea = contentWidth * contentHeight;
+      return {
+        screenWidth,
+        screenHeight,
+        screenArea,
+        contentWidth,
+        contentHeight,
+        contentArea,
+        utilization: safeDivide(contentArea, screenArea),
+        equivalentInch: safeDivide(Math.hypot(contentWidth, contentHeight), 25.4)
+      };
+    }
+
+    function compare(valueA, valueB) {
+      if (!(valueA > 0) || !(valueB > 0)) return { winner: "", text: "待输入" };
+      const difference = valueA - valueB;
+      if (Math.abs(difference) < 0.001) return { winner: "equal", text: "A 与 B 相同" };
+      if (difference > 0) {
+        return { winner: "A", text: `A 比 B 大 ${fmt(safeDivide(difference, valueB) * 100, 1)}% · 相差 ${fmt(difference, 0)} mm²` };
+      }
+      return { winner: "B", text: `B 比 A 大 ${fmt(safeDivide(-difference, valueA) * 100, 1)}% · 相差 ${fmt(-difference, 0)} mm²` };
+    }
+
+    function setOutput(name, value) {
+      const node = document.querySelector(`[data-output="${name}"]`);
+      if (node) node.textContent = value;
+    }
+
+    function setBar(name, value, maximum) {
+      const node = document.querySelector(`[data-bar="${name}"]`);
+      const percent = value > 0 && maximum > 0 ? value / maximum * 100 : 0;
+      if (node) node.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+    }
+
+    function renderDiagram(a, b, contentRatioW, contentRatioH) {
+      const svg = document.querySelector("[data-diagram]");
+      const measurements = [
+        a.screenWidth, a.screenHeight, a.contentWidth, a.contentHeight,
+        b.screenWidth, b.screenHeight, b.contentWidth, b.contentHeight
+      ];
+      if (!measurements.every((value) => Number.isFinite(value) && value > 0)) {
+        svg.setAttribute("viewBox", "0 0 1000 300");
+        svg.innerHTML = '<text x="500" y="150" text-anchor="middle" fill="#6c7068" font-size="22">请输入完整参数</text>';
+        return;
+      }
+
+      const compact = window.matchMedia("(max-width: 600px)").matches;
+      const canvas = compact
+        ? { width: 600, height: 760, centers: [300, 300], tops: [70, 430], labelYs: [36, 396], detailYs: [350, 710], plotHeight: 220 }
+        : { width: 1000, height: 410, centers: [255, 745], tops: [72, 72], labelYs: [38, 38], detailYs: [380, 380], plotHeight: 250 };
+      const maximumWidth = Math.max(a.screenWidth, b.screenWidth);
+      const maximumHeight = Math.max(a.screenHeight, b.screenHeight);
+      const availableWidth = compact ? 480 : 400;
+      const availableHeight = canvas.plotHeight;
+      const scale = Math.min(availableWidth / maximumWidth, availableHeight / maximumHeight);
+      const contentLabel = `${fmt(contentRatioW, 1)}:${fmt(contentRatioH, 1)} 内容`;
+
+      function screenMarkup(metrics, key, index, stroke, fill) {
+        const screenWidth = metrics.screenWidth * scale;
+        const screenHeight = metrics.screenHeight * scale;
+        const contentWidth = metrics.contentWidth * scale;
+        const contentHeight = metrics.contentHeight * scale;
+        const screenX = canvas.centers[index] - screenWidth / 2;
+        const screenY = canvas.tops[index] + (canvas.plotHeight - screenHeight) / 2;
+        const contentX = screenX + (screenWidth - contentWidth) / 2;
+        const contentY = screenY + (screenHeight - contentHeight) / 2;
+        const showContentLabel = contentWidth > 110 && contentHeight > 40;
+        return `
+          <text x="${canvas.centers[index]}" y="${canvas.labelYs[index]}" text-anchor="middle" fill="${stroke}" font-size="24" font-weight="800">${key} 屏幕</text>
+          <rect x="${screenX}" y="${screenY}" width="${screenWidth}" height="${screenHeight}" rx="8" fill="#e6e4dd" stroke="#747871" stroke-width="3" />
+          <rect x="${contentX}" y="${contentY}" width="${contentWidth}" height="${contentHeight}" rx="5" fill="${fill}" stroke="${stroke}" stroke-width="3" />
+          ${showContentLabel ? `<text x="${canvas.centers[index]}" y="${contentY + contentHeight / 2 + 7}" text-anchor="middle" fill="${stroke}" font-size="19" font-weight="800">${contentLabel}</text>` : ""}
+          <text x="${canvas.centers[index]}" y="${canvas.detailYs[index]}" text-anchor="middle" fill="#4f534d" font-size="17" font-weight="700">${fmt(metrics.screenWidth, 1)} × ${fmt(metrics.screenHeight, 1)} mm · 利用率 ${fmt(metrics.utilization * 100, 1)}%</text>
+        `;
+      }
+
+      svg.setAttribute("viewBox", `0 0 ${canvas.width} ${canvas.height}`);
+      svg.innerHTML = `
+        <title>A 与 B 屏幕内容显示示意</title>
+        <desc>屏幕外框按物理尺寸同比例绘制，彩色区域表示指定比例内容完整显示时的有效区域。</desc>
+        ${screenMarkup(a, "A", 0, "#167d74", "#dff1ed")}
+        ${screenMarkup(b, "B", 1, "#c65c32", "#f8e7df")}
+      `;
+    }
+
+    function update() {
+      const contentRatioW = field("contentRatioW");
+      const contentRatioH = field("contentRatioH");
+      const a = screenMetrics(field("screenRatioWA"), field("screenRatioHA"), field("inchA"), contentRatioW, contentRatioH);
+      const b = screenMetrics(field("screenRatioWB"), field("screenRatioHB"), field("inchB"), contentRatioW, contentRatioH);
+      const screenComparison = compare(a.screenArea, b.screenArea);
+      const contentComparison = compare(a.contentArea, b.contentArea);
+
+      setOutput("screenAreaA", `${fmt(a.screenArea, 0)} mm²`);
+      setOutput("screenAreaB", `${fmt(b.screenArea, 0)} mm²`);
+      setOutput("contentAreaA", `${fmt(a.contentArea, 0)} mm²`);
+      setOutput("contentAreaB", `${fmt(b.contentArea, 0)} mm²`);
+      setOutput("screenComparison", screenComparison.text);
+      setOutput("contentComparison", contentComparison.text);
+      setOutput("utilizationA", `${fmt(a.utilization * 100, 1)}%`);
+      setOutput("utilizationB", `${fmt(b.utilization * 100, 1)}%`);
+      setOutput("equivalentA", `${fmt(a.equivalentInch, 2)} 英寸`);
+      setOutput("equivalentB", `${fmt(b.equivalentInch, 2)} 英寸`);
+      setOutput("screenSizeA", `${fmt(a.screenWidth, 1)} × ${fmt(a.screenHeight, 1)} mm`);
+      setOutput("screenSizeB", `${fmt(b.screenWidth, 1)} × ${fmt(b.screenHeight, 1)} mm`);
+      setOutput("contentSizeA", `${fmt(a.contentWidth, 1)} × ${fmt(a.contentHeight, 1)} mm`);
+      setOutput("contentSizeB", `${fmt(b.contentWidth, 1)} × ${fmt(b.contentHeight, 1)} mm`);
+
+      const screenMaximum = Math.max(a.screenArea, b.screenArea);
+      const contentMaximum = Math.max(a.contentArea, b.contentArea);
+      setBar("screenA", a.screenArea, screenMaximum);
+      setBar("screenB", b.screenArea, screenMaximum);
+      setBar("contentA", a.contentArea, contentMaximum);
+      setBar("contentB", b.contentArea, contentMaximum);
+      renderDiagram(a, b, contentRatioW, contentRatioH);
+
+      const reversal = document.querySelector('[data-output="reversal"]');
+      const isReversed = screenComparison.winner && contentComparison.winner &&
+        screenComparison.winner !== "equal" && contentComparison.winner !== "equal" &&
+        screenComparison.winner !== contentComparison.winner;
+      if (isReversed) {
+        reversal.textContent = `面积关系发生反转：${screenComparison.winner} 的屏幕总面积更大，但 ${contentComparison.winner} 的内容有效显示面积更大。`;
+        reversal.classList.add("visible");
+      } else {
+        reversal.textContent = "";
+        reversal.classList.remove("visible");
+      }
+    }
+
+    document.querySelectorAll("input").forEach((input) => input.addEventListener("input", update));
+    let resizeTimer;
+    window.addEventListener("resize", () => {
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(update, 100);
+    });
+    update();
+  </script>
+</body>
+</html>

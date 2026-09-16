@@ -1,0 +1,3 @@
+#!/bin/sh
+repo_root=$(git rev-parse --show-toplevel) || exit 1
+exec python3 "$repo_root/scripts/safe_push.py" --hook "$1" "$2"

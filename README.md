@@ -142,6 +142,18 @@ Profile behavior:
 - `lecture`: keeps frames when the deck appears to change. This is best for stable PPT pages.
 - `program`: keeps one useful frame every few seconds for time coverage, and additionally keeps major visual cuts.
 
+## Safe repository sync
+
+This checkout can use a conservative push guard when a public repository and a private mirror are configured together:
+
+```bash
+git safe-push
+```
+
+The command scans commits that are not yet on the public `main` branch. Clean changes are pushed to both `origin` and `private`; suspicious paths, credentials, confidentiality markers, or locally configured patterns are pushed only to `private`. Non-main branches are private-only by default.
+
+After manually reviewing a keyword-only match, use `git safe-push --public`. Hard credential matches require the more explicit `--force-public` override. A tracked pre-push hook also prevents an ordinary public push from bypassing the scan when `core.hooksPath` is configured to `.githooks`.
+
 Useful tuning knobs:
 
 - `--sample-every 1`: sample more densely when the deck changes quickly.

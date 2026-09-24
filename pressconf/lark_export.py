@@ -22,6 +22,7 @@ from pressconf.runtime import certifi_ssl_context
 LOCAL_IMAGE_RE = re.compile(r"^\s*!\[[^\]]*\]\((frames/[^)]+)\)\s*$")
 MCP_TASK_POLL_INTERVAL_SECONDS = 3
 MCP_TASK_POLL_TIMEOUT_SECONDS = 120
+MCP_RUNNING_STATUSES = {"running", "pending", "processing"}
 
 
 def lark_cli_path() -> str:
@@ -280,8 +281,10 @@ def export_via_mcp_http(
     meta["mcp_attempts"] = attempts
     meta["doc_id"] = fields["doc_id"]
     meta["url"] = fields["url"] or find_url(normalized, json.dumps(normalized, ensure_ascii=False))
-    if not meta["url"] and fields["task_id"] and fields["status"] in {"running", "pending", "processing"}:
-        raise RuntimeError("飞书文档仍在后台生成中，暂未返回文档链接，请稍后重试写入。")
+    if not meta["url"]:
+        if fields["status"] in MCP_RUNNING_STATUSES:
+            raise RuntimeError("飞书文档仍在后台生成中，暂未返回文档链接，请稍后重试写入。")
+        raise RuntimeError("飞书文档写入完成，但服务未返回可打开的文档链接。")
     return meta
 
 
@@ -587,18 +590,24 @@ def resolve_mcp_task_result(
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     response = first_response
     attempts = [response]
+    # Some MCP implementations return task_id only on the first response. Keep
+    # using that id while later polling responses merely report `running`.
+    task_id = ""
     deadline = time.monotonic() + MCP_TASK_POLL_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
         normalized = normalize_mcp_response(response)
         fields = extract_lark_export_fields(normalized)
-        if fields["url"] or not fields["task_id"] or fields["status"] not in {"running", "pending", "processing"}:
+        task_id = fields["task_id"] or task_id
+        if fields["url"] or fields["status"] not in MCP_RUNNING_STATUSES:
+            return response, attempts
+        if not task_id:
             return response, attempts
         time.sleep(MCP_TASK_POLL_INTERVAL_SECONDS)
-        response = post_json(url, mcp_task_poll_payload(original_payload, fields["task_id"]), headers)
+        response = post_json(url, mcp_task_poll_payload(original_payload, task_id), headers)
         attempts.append(response)
         if response.get("error"):
             raise RuntimeError(f"MCP 写入失败：{json.dumps(response['error'], ensure_ascii=False)}")
-    return response, attempts
+    raise RuntimeError("飞书文档仍在后台生成中，等待文档链接超时。请先检查飞书中是否已生成文档，避免重复创建。")
 
 
 def mcp_task_poll_payload(original_payload: dict[str, Any], task_id: str) -> dict[str, Any]:

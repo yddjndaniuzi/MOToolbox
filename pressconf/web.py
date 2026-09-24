@@ -31,19 +31,23 @@ from pressconf.keyframes import (
     write_manifest,
     write_markdown,
 )
-from pressconf.transcript import ensure_transcript, write_transcript_meta
+from pressconf.transcript import ensure_transcript, read_existing_transcript, write_transcript_meta
 from pressconf.transcript_reader import build_transcript_reader, read_transcript_reader, write_transcript_reader
 from pressconf.refine import refine_brief
 from pressconf.preview import render_markdown_preview
 from pressconf.config_store import (
     MODEL_PRESETS,
+    MODEL_STRENGTHS,
+    delete_model_config,
     load_lark_config,
     load_models_config,
     load_knowledge_config,
     masked_secret,
     resolve_model,
+    resolve_model_entry,
     save_lark_config,
     save_model_config,
+    save_model_routing,
     save_knowledge_config,
 )
 from pressconf.knowledge import build_knowledge_index, load_knowledge_index, search_knowledge
@@ -194,12 +198,20 @@ def create_app() -> Flask:
         knowledge_index = load_knowledge_index(BASE_DIR)
         lark_config = load_lark_config(BASE_DIR)
         models = models_config.get("models", [])
-        model = models[0] if models else {}
+        selected_model_id = request.args.get("model", "").strip()
+        new_model = request.args.get("new") == "1"
+        model = {} if new_model else next(
+            (item for item in models if item.get("id") == selected_model_id),
+            models[0] if models else {},
+        )
         search_query = request.args.get("q", "").strip()
         return render_template(
             "admin.html",
             storage_locations=storage_locations(),
+            models=models,
             model=model,
+            model_routes=models_config.get("routing_by_strength") or {},
+            model_strengths=MODEL_STRENGTHS,
             model_presets=MODEL_PRESETS,
             secret_mask=masked_secret(BASE_DIR, model.get("secret_ref", "")) if model else "未配置",
             knowledge_config=knowledge_config,
@@ -684,8 +696,18 @@ def create_app() -> Flask:
 
     @app.post("/admin/model")
     def admin_model_save():
-        save_model_config(BASE_DIR, request.form)
-        return redirect(url_for("admin"))
+        saved_model_id = save_model_config(BASE_DIR, request.form)
+        return redirect(url_for("admin", model=saved_model_id) + "#models")
+
+    @app.post("/admin/model/routing")
+    def admin_model_routing_save():
+        save_model_routing(BASE_DIR, request.form)
+        return redirect(url_for("admin") + "#models")
+
+    @app.post("/admin/model/delete")
+    def admin_model_delete():
+        delete_model_config(BASE_DIR, request.form.get("model_id", "").strip())
+        return redirect(url_for("admin") + "#models")
 
     @app.post("/admin/knowledge")
     def admin_knowledge_save():
@@ -862,7 +884,15 @@ def create_app() -> Flask:
         refined_content = refined_path.read_text(encoding="utf-8") if refined_path.exists() else ""
         transcript_meta = read_manifest(result_dir / "transcript" / "meta.json")
         refine_meta = read_manifest(result_dir / "refine_meta.json")
-        active_refine_model = resolve_model(BASE_DIR, "brief_refine")
+        refine_models_by_strength = {
+            strength: resolve_model(BASE_DIR, "brief_refine", strength)
+            for strength in MODEL_STRENGTHS
+        }
+        refine_pool_models = [
+            model for model in load_models_config(BASE_DIR).get("models", [])
+            if model.get("enabled", True) and "brief_refine" in model.get("uses", [])
+        ]
+        active_refine_model = refine_models_by_strength["heavy"]
         with BRIEF_JOBS_LOCK:
             brief_job = dict(BRIEF_JOBS.get(slug, {}))
         with REFINE_JOBS_LOCK:
@@ -877,6 +907,8 @@ def create_app() -> Flask:
             transcript_meta=transcript_meta,
             refine_meta=refine_meta,
             active_refine_model=active_refine_model,
+            refine_models_by_strength=refine_models_by_strength,
+            refine_pool_models=refine_pool_models,
             brief_job=brief_job,
             refine_job=refine_job,
             has_coverage_report=(result_dir / "coverage_report.json").exists(),
@@ -914,8 +946,17 @@ def create_app() -> Flask:
         format_override = request.form.get("event_format", "").strip().lower()
         if format_override not in {"hardware", "software"}:
             format_override = ""
-        model_config = resolve_model(BASE_DIR, "brief_refine")
-        model_label = str(model_config.get("model") or model_config.get("name") or "模型")
+        selected_model_id = request.form.get("model_id", "").strip()
+        model_config = None
+        model_label = "按任务强度自动选模"
+        if selected_model_id:
+            selected_model = next((model for model in load_models_config(BASE_DIR).get("models", [])
+                                   if model.get("id") == selected_model_id and model.get("enabled", True)
+                                   and "brief_refine" in model.get("uses", [])), None)
+            if selected_model is None:
+                return redirect(url_for("brief_form", slug=slug, error="所选模型不可用，请重新选择。"))
+            model_config = resolve_model_entry(BASE_DIR, selected_model)
+            model_label = model_config["name"]
         with REFINE_JOBS_LOCK:
             current = REFINE_JOBS.get(slug, {})
             if current.get("status") == "running":
@@ -929,14 +970,31 @@ def create_app() -> Flask:
                 "user_instruction": user_instruction,
                 "brief_tier": tier_override,
                 "event_format": format_override,
+                "model_id": selected_model_id,
                 "model": model_label,
-                "provider": model_config.get("provider", ""),
+                "provider": (model_config or {}).get("provider", ""),
         }
         thread = threading.Thread(target=run_refine_job, args=(slug, display_name, user_instruction, model_config, tier_override, format_override), daemon=True)
         thread.start()
         if next_page == "preview":
             return redirect(url_for("brief_preview", slug=slug, variant="refined"))
         return redirect(url_for("brief_form", slug=slug))
+
+    @app.post("/result/<slug>/refine/clear-session")
+    def refine_clear_session(slug: str):
+        result_dir = (RAW_ROOT / slug).resolve()
+        if RAW_ROOT.resolve() not in result_dir.parents or not (result_dir / "manifest.json").is_file():
+            return jsonify({"ok": False, "error": "简报不存在。"}), 404
+        with REFINE_JOBS_LOCK:
+            if REFINE_JOBS.get(slug, {}).get("status") == "running":
+                return jsonify({"ok": False, "error": "精加工正在运行，请完成后再清除 Session。"}), 409
+            cache_dir = result_dir / "refine_chunks"
+            if cache_dir.exists():
+                shutil.rmtree(cache_dir)
+            for filename in ("brief_refined.partial.md", "brief_refined.complete.tmp"):
+                (result_dir / filename).unlink(missing_ok=True)
+            REFINE_JOBS.pop(slug, None)
+        return jsonify({"ok": True})
 
     @app.post("/result/<slug>/lark/export")
     def lark_export_generate(slug: str):
@@ -1934,12 +1992,14 @@ def run_review_video_job(job_id: str, payload: dict) -> None:
             additional_instruction=additional_instruction,
             progress_callback=on_progress,
             domain=domain,
+            work_dir=result_dir,
         )
         meta["product_name"] = product_name
         meta["media_name"] = media_name
         meta["video_title"] = video_title
         meta["title"] = video_title or product_name or f"评测视频分析-{job_id}"
         meta["transcript_reader"] = reader_meta
+        meta["warnings"] = sorted(set([*(meta.get("warnings") or []), *(reader_meta.get("warnings") or [])]))
         (result_dir / "review_video_analysis.md").write_text(result.strip() + "\n", encoding="utf-8")
         (result_dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
         update_review_video_job(
@@ -2267,26 +2327,16 @@ def run_brief_job(slug: str, display_name: str) -> None:
         update_brief_job(slug, status="error", message=str(exc), percent=100)
 
 
-def run_refine_job(slug: str, display_name: str, user_instruction: str = "", model_config: dict[str, str] | None = None, tier_override: str = "", format_override: str = "") -> None:
+def run_refine_job(slug: str, display_name: str, user_instruction: str = "", model_config: dict[str, object] | None = None, tier_override: str = "", format_override: str = "") -> None:
     try:
-        model_config = model_config or resolve_model(BASE_DIR, "brief_refine")
-        model_label = str(model_config.get("model") or model_config.get("name") or "模型")
+        model_label = str((model_config or {}).get("model") or (model_config or {}).get("name") or "自动路由模型")
         result_dir = RAW_ROOT / slug
         manifest = read_manifest(result_dir / "manifest.json")
         brief_manifest = dict(manifest)
         brief_manifest["event_name"] = display_name
 
-        update_refine_job(slug, status="running", message="重新选图：读取转写", percent=10, preview="")
-        transcript, transcript_meta = ensure_transcript(
-            result_dir=result_dir,
-            manifest=manifest,
-            python_bin=PYTHON_BIN,
-            base_dir=BASE_DIR,
-            progress_callback=lambda progress: update_refine_job(
-                slug, status="running", message=str(progress.get("message") or "音频转写中"),
-                percent=10 + int(13 * int(progress.get("percent") or 0) / 100),
-            ),
-        )
+        update_refine_job(slug, status="running", message="重新选图：读取已有转写", percent=10, preview="")
+        transcript, transcript_meta = read_existing_transcript(result_dir)
         domain_resolution = resolve_domain(manifest, transcript)
         manifest["domain"] = domain_resolution
         (result_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -44,3 +44,65 @@ class LarkNetworkTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, '避免重复创建'):
                 lark.post_json('https://example.com', {}, {})
             request.assert_called_once()
+
+    def test_mcp_poll_keeps_original_task_id_until_document_url_is_ready(self):
+        first_response = {
+            'result': {
+                'content': [{
+                    'type': 'text',
+                    'text': json.dumps({
+                        'status': 'running',
+                        'task_id': 'task-123',
+                    }),
+                }],
+            },
+        }
+        still_running_without_task_id = {
+            'result': {
+                'content': [{
+                    'type': 'text',
+                    'text': json.dumps({
+                        'status': 'running',
+                        'message': '任务仍在处理中',
+                    }),
+                }],
+            },
+        }
+        completed = {
+            'result': {
+                'content': [{
+                    'type': 'text',
+                    'text': json.dumps({
+                        'status': 'success',
+                        'document_id': 'docx-test',
+                        'url': 'https://example.feishu.cn/docx/docx-test',
+                    }),
+                }],
+            },
+        }
+        original_payload = {
+            'jsonrpc': '2.0',
+            'id': 'motoolbox-lark-export',
+            'method': 'tools/call',
+            'params': {'name': 'create-doc', 'arguments': {'markdown': '# test'}},
+        }
+
+        with patch.object(
+            lark,
+            'post_json',
+            side_effect=[still_running_without_task_id, completed],
+        ) as post, patch.object(lark.time, 'sleep'):
+            response, attempts = lark.resolve_mcp_task_result(
+                'https://example.com/mcp',
+                original_payload,
+                {},
+                first_response,
+            )
+
+        self.assertEqual(response, completed)
+        self.assertEqual(len(attempts), 3)
+        self.assertEqual(post.call_count, 2)
+        for call in post.call_args_list:
+            self.assertEqual(call.args[1]['params']['arguments'], {'task_id': 'task-123'})
+        fields = lark.extract_lark_export_fields(lark.normalize_mcp_response(response))
+        self.assertEqual(fields['url'], 'https://example.feishu.cn/docx/docx-test')

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 import statistics
 import zipfile
@@ -13,6 +14,7 @@ from pypdf import PdfReader
 from pressconf.config_store import resolve_model
 from pressconf.derivatives import call_writing_model_streaming
 from pressconf.domains import DomainProfile, load_domain
+from pressconf.model_client import is_model_length_error
 
 
 FEEDBACK_SYSTEM = (
@@ -31,6 +33,54 @@ REVIEW_VIDEO_SYSTEM = (
 
 INTERNAL_CODENAME_PATTERN = re.compile(r"(?<![A-Za-z0-9])(?:[PQON]\d{1,4})(?![A-Za-z0-9])")
 MARKDOWN_FENCE_PATTERN = re.compile(r"^\s*```(?:markdown|md)?\s*\n(?P<body>.*)\n\s*```\s*$", re.IGNORECASE | re.DOTALL)
+REVIEW_VIDEO_PIPELINE_VERSION = 2
+REVIEW_VIDEO_CHUNK_LIMIT = 12_000
+REVIEW_VIDEO_NOTE_CHAR_BUDGET = 2_600
+
+REVIEW_VIDEO_FINAL_SECTIONS = (
+    {
+        "key": "overview",
+        "headings": ("# 媒体评测视频分析", "## 概述", "## 视频信息"),
+        "instruction": "概括整体倾向、一句话判断、老板可看要点和传播可用性，并列出视频基本信息。老板可看要点控制在 3-5 条。",
+        "char_budget": 2_600,
+        "max_tokens": 8_000,
+    },
+    {
+        "key": "sentiment",
+        "headings": ("## 情感倾向判断",),
+        "instruction": "用 2-4 段解释整体情感倾向，区分口播语气与真正的推荐结论，并引用关键证据。",
+        "char_budget": 2_400,
+        "max_tokens": 8_000,
+    },
+    {
+        "key": "positive",
+        "headings": ("## 主要正面观点",),
+        "instruction": "按业务和传播重要性排序正面观点。每条写观点结论、为什么重要、原文短摘和时间线索，合并重复观点。",
+        "char_budget": 3_600,
+        "max_tokens": 9_000,
+    },
+    {
+        "key": "negative",
+        "headings": ("## 主要负面/争议观点",),
+        "instruction": "按影响排序负面或争议观点。每条写问题结论、可能影响、原文短摘、时间线索和建议回应方式，合并重复观点。",
+        "char_budget": 3_600,
+        "max_tokens": 9_000,
+    },
+    {
+        "key": "quotes",
+        "headings": ("## 可传播引用金句",),
+        "instruction": "用表格给出最值得使用的 5-10 条媒体原话短摘，列为金句原文、推荐用途、时间线索、引用风险；不得改写成品牌话术。",
+        "char_budget": 3_200,
+        "max_tokens": 8_000,
+    },
+    {
+        "key": "recommendations",
+        "headings": ("## 对外传播建议", "## 附：证据摘要"),
+        "instruction": "给出可执行的传播动作、谨慎引用项和需要 FAQ 或后续沟通的负面点；最后保留精简、可追溯的片段级证据摘要。",
+        "char_budget": 3_400,
+        "max_tokens": 9_000,
+    },
+)
 
 
 @dataclass
@@ -478,7 +528,7 @@ def generate_media_feedback(
     additional_instruction: str = "",
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    model_config = resolve_model(base_dir, "writing")
+    model_config = resolve_model(base_dir, "writing", "heavy")
     api_key = model_config["api_key"].strip()
     if not api_key:
         raise RuntimeError(f"没有配置 {model_config.get('name', model_config.get('model', '模型'))} 的 API Key。")
@@ -490,6 +540,7 @@ def generate_media_feedback(
         reference_feedback=reference_feedback,
         additional_instruction=additional_instruction,
     )
+    selected_model: dict[str, str] = {}
     result = call_writing_model_streaming(
         api_key=api_key,
         base_url=model_config["base_url"].rstrip("/"),
@@ -500,9 +551,12 @@ def generate_media_feedback(
         stage="媒体反馈",
         system_prompt=FEEDBACK_SYSTEM,
         progress_callback=progress_callback,
+        fallback_models=model_config.get("fallbacks"),
+        selected_model=selected_model,
     )
     result = sanitize_portable_markdown(result)
-    model = model_config["model"].strip()
+    model = selected_model.get("model") or model_config["model"].strip()
+    provider = selected_model.get("provider") or model_config["provider"].strip()
     warnings = sorted(set(INTERNAL_CODENAME_PATTERN.findall(result)))
     if warnings:
         result += "\n\n> 自检提醒：输出中仍包含疑似内部代号：" + "、".join(warnings)
@@ -512,7 +566,7 @@ def generate_media_feedback(
             result += "\n\n> 价格口径自检提醒：正文中出现了未在确定性价格计算结果中匹配到的疑似价格数字，请二次加工时核对或删除：" + "、".join(price_warnings[:20])
             warnings.extend(f"price:{item}" for item in price_warnings)
         result = append_price_analysis(result, price_analysis_markdown)
-    return result.strip(), {"model": model, "provider": model_config["provider"].strip(), "warnings": warnings}
+    return result.strip(), {"model": model, "provider": provider, "warnings": warnings}
 
 
 def generate_review_video_analysis(
@@ -526,6 +580,7 @@ def generate_review_video_analysis(
     additional_instruction: str = "",
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     domain: DomainProfile | None = None,
+    work_dir: Path | None = None,
 ) -> tuple[str, dict[str, Any]]:
     domain = domain or load_domain("generic")
     review_system = (
@@ -534,69 +589,250 @@ def generate_review_video_analysis(
         f"领域要求：{domain.guidance}"
         "所有判断必须来自逐字稿，不得编造参数、测试结果或观点；短摘必须保持原意并可追溯。"
     )
-    model_config = resolve_model(base_dir, "writing")
+    model_config = resolve_model(
+        base_dir,
+        "writing",
+        "heavy" if len(transcript_text) > 24_000 else "standard",
+    )
     api_key = model_config["api_key"].strip()
     if not api_key:
         raise RuntimeError(f"没有配置 {model_config.get('name', model_config.get('model', '模型'))} 的 API Key。")
 
-    chunks = split_transcript_chunks(transcript_text, 24000)
+    chunks = split_transcript_chunks(transcript_text, REVIEW_VIDEO_CHUNK_LIMIT)
     if not chunks:
         raise RuntimeError("没有获取到有效逐字稿。")
+    cache_dir = work_dir / "review_analysis_parts" if work_dir else None
     chunk_notes: list[str] = []
+    stage_models: list[dict[str, str]] = []
     for index, chunk in enumerate(chunks, start=1):
-        stage = f"逐字稿理解 {index}/{len(chunks)}"
-        note = call_writing_model_streaming(
+        note, used_models = _generate_review_video_chunk_note(
+            chunk=chunk,
+            index=index,
+            count=len(chunks),
+            cache_key=f"chunk-{index:03d}",
+            cache_dir=cache_dir,
             api_key=api_key,
             base_url=model_config["base_url"].rstrip("/"),
             model=model_config["model"].strip(),
             provider=model_config["provider"].strip(),
-            prompt=build_review_video_chunk_prompt(
-                product_name=product_name,
-                media_name=media_name,
-                video_title=video_title,
-                chunk_index=index,
-                chunk_count=len(chunks),
-                transcript_chunk=chunk,
-                additional_instruction=additional_instruction,
-                domain=domain,
-            ),
-            max_tokens=6000,
-            stage=stage,
-            system_prompt=review_system,
+            fallback_models=model_config.get("fallbacks"),
+            product_name=product_name,
+            media_name=media_name,
+            video_title=video_title,
+            additional_instruction=additional_instruction,
+            domain=domain,
+            review_system=review_system,
             progress_callback=progress_callback,
         )
+        stage_models.extend(used_models)
         chunk_notes.append(f"## 片段 {index}/{len(chunks)}\n{note.strip()}")
 
-    result = call_writing_model_streaming(
-        api_key=api_key,
-        base_url=model_config["base_url"].rstrip("/"),
-        model=model_config["model"].strip(),
-        provider=model_config["provider"].strip(),
-        prompt=build_review_video_final_prompt(
+    notes_text = "\n\n".join(chunk_notes)
+    final_parts: list[str] = []
+    for section_index, section in enumerate(REVIEW_VIDEO_FINAL_SECTIONS, start=1):
+        prompt = build_review_video_section_prompt(
             product_name=product_name,
             media_name=media_name,
             video_title=video_title,
             video_url=video_url,
-            chunk_notes="\n\n".join(chunk_notes),
+            chunk_notes=notes_text,
+            headings=section["headings"],
+            section_instruction=str(section["instruction"]),
+            char_budget=int(section["char_budget"]),
             additional_instruction=additional_instruction,
             domain=domain,
-        ),
-        max_tokens=14000,
-        stage="评测视频分析",
-        system_prompt=review_system,
-        progress_callback=progress_callback,
-    )
-    result = sanitize_portable_markdown(result)
+        )
+        part, selected_model = _call_cached_review_stage(
+            cache_dir=cache_dir,
+            cache_key=f"final-{section_index:02d}-{section['key']}",
+            prompt=prompt,
+            required_headings=tuple(section["headings"]),
+            char_budget=int(section["char_budget"]),
+            api_key=api_key,
+            base_url=model_config["base_url"].rstrip("/"),
+            model=model_config["model"].strip(),
+            provider=model_config["provider"].strip(),
+            fallback_models=model_config.get("fallbacks"),
+            max_tokens=int(section["max_tokens"]),
+            stage=f"评测视频分析 {section_index}/{len(REVIEW_VIDEO_FINAL_SECTIONS)}",
+            system_prompt=review_system,
+            progress_callback=progress_callback,
+        )
+        stage_models.append(selected_model)
+        final_parts.append(part)
+
+    result = sanitize_portable_markdown("\n\n".join(final_parts))
     warnings = sorted(set(INTERNAL_CODENAME_PATTERN.findall(result)))
     if warnings:
         result += "\n\n> 自检提醒：输出中仍包含疑似内部代号：" + "、".join(warnings)
     return result.strip(), {
-        "model": model_config["model"].strip(),
-        "provider": model_config["provider"].strip(),
+        "model": next((item.get("model") for item in reversed(stage_models) if item.get("model")), model_config["model"].strip()),
+        "provider": next((item.get("provider") for item in reversed(stage_models) if item.get("provider")), model_config["provider"].strip()),
         "chunk_count": len(chunks),
+        "final_section_count": len(REVIEW_VIDEO_FINAL_SECTIONS),
+        "pipeline_version": REVIEW_VIDEO_PIPELINE_VERSION,
         "warnings": warnings,
         "domain": domain.id,
     }
+
+
+def _generate_review_video_chunk_note(
+    *,
+    chunk: str,
+    index: int,
+    count: int,
+    cache_key: str,
+    cache_dir: Path | None,
+    api_key: str,
+    base_url: str,
+    model: str,
+    provider: str,
+    fallback_models: list[dict[str, Any]] | None,
+    product_name: str,
+    media_name: str,
+    video_title: str,
+    additional_instruction: str,
+    domain: DomainProfile,
+    review_system: str,
+    progress_callback: Callable[[dict[str, Any]], None] | None,
+    depth: int = 0,
+) -> tuple[str, list[dict[str, str]]]:
+    prompt = build_review_video_chunk_prompt(
+        product_name=product_name,
+        media_name=media_name,
+        video_title=video_title,
+        chunk_index=index,
+        chunk_count=count,
+        transcript_chunk=chunk,
+        additional_instruction=additional_instruction,
+        domain=domain,
+        char_budget=REVIEW_VIDEO_NOTE_CHAR_BUDGET,
+    )
+    stage = f"逐字稿理解 {index}/{count}" if depth == 0 else f"逐字稿理解 {index}/{count} 子段"
+    try:
+        note, selected = _call_cached_review_stage(
+            cache_dir=cache_dir,
+            cache_key=cache_key,
+            prompt=prompt,
+            required_headings=("## 片段情绪", "## 正面观点", "## 负面/争议观点", "## 可引用金句"),
+            char_budget=REVIEW_VIDEO_NOTE_CHAR_BUDGET,
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            provider=provider,
+            fallback_models=fallback_models,
+            max_tokens=9_000,
+            stage=stage,
+            system_prompt=review_system,
+            progress_callback=progress_callback,
+        )
+        return note, [selected]
+    except RuntimeError as exc:
+        if not is_model_length_error(exc) or len(chunk) <= 3_500 or depth >= 3:
+            raise
+        subchunks = split_transcript_chunks(chunk, max(3_000, len(chunk) // 2))
+        if len(subchunks) < 2:
+            raise
+        if progress_callback:
+            progress_callback({"stage": stage, "message": "当前片段达到输出上限，已自动拆小并继续"})
+        notes: list[str] = []
+        models: list[dict[str, str]] = []
+        for sub_index, subchunk in enumerate(subchunks, start=1):
+            subnote, submodels = _generate_review_video_chunk_note(
+                chunk=subchunk,
+                index=index,
+                count=count,
+                cache_key=f"{cache_key}-sub-{sub_index:02d}",
+                cache_dir=cache_dir,
+                api_key=api_key,
+                base_url=base_url,
+                model=model,
+                provider=provider,
+                fallback_models=fallback_models,
+                product_name=product_name,
+                media_name=media_name,
+                video_title=video_title,
+                additional_instruction=additional_instruction,
+                domain=domain,
+                review_system=review_system,
+                progress_callback=progress_callback,
+                depth=depth + 1,
+            )
+            notes.append(f"### 子片段 {sub_index}/{len(subchunks)}\n{subnote}")
+            models.extend(submodels)
+        return "\n\n".join(notes), models
+
+
+def _call_cached_review_stage(
+    *,
+    cache_dir: Path | None,
+    cache_key: str,
+    prompt: str,
+    required_headings: tuple[str, ...],
+    char_budget: int,
+    api_key: str,
+    base_url: str,
+    model: str,
+    provider: str,
+    fallback_models: list[dict[str, Any]] | None,
+    max_tokens: int,
+    stage: str,
+    system_prompt: str,
+    progress_callback: Callable[[dict[str, Any]], None] | None,
+) -> tuple[str, dict[str, str]]:
+    prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
+    cache_path = cache_dir / f"{cache_key}-{prompt_hash}.md" if cache_dir else None
+    if cache_path and cache_path.exists():
+        cached = sanitize_portable_markdown(cache_path.read_text(encoding="utf-8"))
+        if _has_required_headings(cached, required_headings):
+            if progress_callback:
+                progress_callback({"stage": stage, "message": "已复用完成的分析分段", "generated_chars": len(cached), "preview": cached[-600:]})
+            return cached, {"model": model, "provider": provider}
+
+    last_error: RuntimeError | None = None
+    for attempt in range(2):
+        selected_model: dict[str, str] = {}
+        retry_instruction = ""
+        if attempt:
+            retry_instruction = (
+                f"\n\n【上次输出未完整结束或结构不完整】本次必须在 {char_budget} 个中文字符内完成；"
+                "先写结论，压缩重复证据，确保所有指定标题和最后一节都有完整收尾。"
+            )
+        try:
+            result = call_writing_model_streaming(
+                api_key=api_key,
+                base_url=base_url,
+                model=model,
+                provider=provider,
+                prompt=prompt + retry_instruction,
+                max_tokens=max_tokens,
+                stage=stage,
+                system_prompt=system_prompt,
+                progress_callback=progress_callback,
+                fallback_models=fallback_models,
+                selected_model=selected_model,
+            )
+            result = sanitize_portable_markdown(result)
+            missing = [heading for heading in required_headings if not _has_required_headings(result, (heading,))]
+            if missing:
+                raise RuntimeError("模型输出缺少必要章节：" + "、".join(missing))
+            if cache_path:
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                cache_path.write_text(result.strip() + "\n", encoding="utf-8")
+            return result, selected_model
+        except RuntimeError as exc:
+            last_error = exc
+            if attempt == 0 and (is_model_length_error(exc) or "缺少必要章节" in str(exc)):
+                if progress_callback:
+                    progress_callback({"stage": stage, "message": "输出未完整结束，正在收紧篇幅重试"})
+                continue
+            raise
+    raise last_error or RuntimeError("模型没有返回完整内容。")
+
+
+def _has_required_headings(markdown: str, headings: tuple[str, ...]) -> bool:
+    lines = {line.strip() for line in str(markdown or "").splitlines()}
+    return all(heading in lines for heading in headings)
 
 
 def sanitize_portable_markdown(markdown: str) -> str:
@@ -770,6 +1006,7 @@ def build_review_video_chunk_prompt(
     transcript_chunk: str,
     additional_instruction: str = "",
     domain: DomainProfile | None = None,
+    char_budget: int = REVIEW_VIDEO_NOTE_CHAR_BUDGET,
 ) -> str:
     domain = domain or load_domain("generic")
     instruction_block = f"\n【用户补充要求】\n{additional_instruction.strip()}\n" if additional_instruction.strip() else ""
@@ -790,6 +1027,7 @@ def build_review_video_chunk_prompt(
 4. 提取可传播引用的“金句”：必须是媒体原话短摘，不要改写成品牌话术。
 5. 如果逐字稿有 SRT 时间码，请尽量保留时间线索；没有时间码则写“片段 {chunk_index}”。
 6. 不要输出最终报告，只输出本片段结构化笔记。
+7. 全部笔记控制在 {char_budget} 个中文字符以内；合并同义观点，每类优先保留最重要、证据最清楚的内容，并完整写到最后一个标题。
 
 建议格式：
 ## 片段情绪
@@ -807,6 +1045,48 @@ def build_review_video_chunk_prompt(
 
 【逐字稿片段】
 {transcript_chunk.strip()}
+"""
+
+
+def build_review_video_section_prompt(
+    *,
+    product_name: str,
+    media_name: str,
+    video_title: str,
+    video_url: str,
+    chunk_notes: str,
+    headings: tuple[str, ...],
+    section_instruction: str,
+    char_budget: int,
+    additional_instruction: str = "",
+    domain: DomainProfile | None = None,
+) -> str:
+    domain = domain or load_domain("generic")
+    instruction_block = f"\n【用户补充要求】\n{additional_instruction.strip()}\n" if additional_instruction.strip() else ""
+    heading_block = "\n".join(headings)
+    return f"""请基于【逐字稿分段理解笔记】，撰写《媒体评测视频分析》的一个完整章节组。
+
+产品/项目：{product_name or "未填写"}
+媒体/账号：{media_name or "未填写"}
+视频标题：{video_title or "未填写"}
+视频链接：{video_url or "未填写"}
+业务领域：{domain.name}
+领域关注：{domain.guidance}
+{instruction_block}
+
+本次只输出以下标题及其内容，标题文字必须原样保留，不要输出其他一级或二级标题：
+{heading_block}
+
+章节任务：{section_instruction}
+
+硬性要求：
+1. 全部内容控制在 {char_budget} 个中文字符以内，并完整写到最后一个指定标题。
+2. 先写重要结论，合并重复观点；所有判断和原话只来自笔记，不得补充外部事实。
+3. 原文只做短摘并保留时间或片段线索；证据不足时明确写“逐字稿未提供”。
+4. 输出纯中文 Markdown，不要代码块，不要 HTML/XML 或飞书专用标签。
+
+【逐字稿分段理解笔记】
+{chunk_notes.strip()}
 """
 
 

@@ -19,7 +19,7 @@ import numpy as np
 
 from pressconf.asr_hotword_loader import asr_hotword_prompt, build_asr_hotwords
 from pressconf.runtime import ytdlp_command, ytdlp_site_arg_variants
-from pressconf.asr_segments import VERSION as ASR_PIPELINE_VERSION, issues as asr_issues, transcribe_chunks
+from pressconf.asr_segments import VERSION as ASR_PIPELINE_VERSION, UNCERTAIN_AUDIO, compact_text, is_known_hallucination, issues as asr_issues, transcribe_chunks
 
 
 FASTER_WHISPER_MODEL_ALIASES = {
@@ -60,6 +60,8 @@ def ensure_transcript(
     existing = first_existing(transcript_dir, ["source.srt", "source.vtt", "asr.srt", "asr.txt"])
     if existing and asr_cache_usable(existing, manifest):
         content = existing.read_text(encoding="utf-8", errors="ignore")
+        if existing.name.startswith("asr."):
+            content = sanitize_cached_asr(content)
         meta = transcript_meta("cached", str(existing.relative_to(result_dir)), content)
         return content, attach_quality_meta(transcript_dir, meta)
 
@@ -91,7 +93,7 @@ def ensure_transcript(
         hotword_context=hotword_context,
         progress_callback=progress_callback,
     )
-    content = asr_path.read_text(encoding="utf-8", errors="ignore")
+    content = sanitize_cached_asr(asr_path.read_text(encoding="utf-8", errors="ignore"))
     meta = transcript_meta("asr", str(asr_path.relative_to(result_dir)), content)
     if hotword_context.get("terms"):
         meta["hotwords"] = {
@@ -105,6 +107,31 @@ def ensure_transcript(
     return content, attach_quality_meta(transcript_dir, meta)
 
 
+def read_existing_transcript(result_dir: Path) -> tuple[str, dict[str, Any]]:
+    """Read the transcript used by the base brief without starting ASR."""
+    transcript_dir = result_dir / "transcript"
+    try:
+        meta = json.loads((transcript_dir / "meta.json").read_text(encoding="utf-8"))
+        if not isinstance(meta, dict):
+            meta = {}
+    except (OSError, ValueError):
+        meta = {}
+    relative = str(meta.get("path") or "")
+    path = result_dir / relative if relative else None
+    if path is None or not path.is_file():
+        path = first_existing(transcript_dir, ["source.srt", "source.vtt", "asr.srt", "asr.txt"])
+        if path is not None:
+            meta = transcript_meta("cached", str(path.relative_to(result_dir)), path.read_text(encoding="utf-8", errors="ignore"))
+    if path is None:
+        raise RuntimeError("没有找到基础稿使用的转写文件，请先完成简报基础稿生成。")
+    content = path.read_text(encoding="utf-8", errors="ignore")
+    if path.name.startswith("asr."):
+        content = sanitize_cached_asr(content)
+    if not content.strip():
+        raise RuntimeError("已有转写文件为空，请先重新生成简报基础稿。")
+    return content, attach_quality_meta(transcript_dir, meta)
+
+
 def asr_cache_usable(path: Path, manifest: dict[str, Any]) -> bool:
     if path.name.startswith("source."):
         return True
@@ -113,9 +140,7 @@ def asr_cache_usable(path: Path, manifest: dict[str, Any]) -> bool:
     except (OSError, ValueError):
         quality = {}
     duration = float(quality.get("duration") or (manifest.get("stats") or {}).get("duration_sec") or 0)
-    if quality.get("unresolved_intervals"):
-        return False
-    return duration <= 180 or quality.get("asr_pipeline_version") == ASR_PIPELINE_VERSION
+    return duration <= 180 or quality.get("asr_pipeline_version") in (1, 2, 3, ASR_PIPELINE_VERSION)
 
 
 def transcript_meta(method: str, path: str, content: str) -> dict[str, Any]:
@@ -365,6 +390,46 @@ def load_pcm16_audio(audio_path: Path) -> tuple[np.ndarray, float]:
     return audio, len(audio) / sample_rate
 
 
+def asr_speech_detector(audio: np.ndarray):
+    """Confirm long ASR cues against the source audio, with safe fallback."""
+    try:
+        from faster_whisper.vad import VadOptions, get_speech_timestamps
+    except ImportError:
+        return None
+    checked: dict[tuple[int, int], bool] = {}
+
+    def has_speech(start: float, end: float) -> bool:
+        bounds = (max(0, round(start * 16000)), min(len(audio), round(end * 16000)))
+        if bounds not in checked:
+            try:
+                checked[bounds] = bool(get_speech_timestamps(
+                    audio[bounds[0]:bounds[1]],
+                    vad_options=VadOptions(min_speech_duration_ms=250),
+                    sampling_rate=16000,
+                ))
+            except Exception:
+                # A VAD failure must not discard possibly real speech.
+                checked[bounds] = True
+        return checked[bounds]
+
+    return has_speech
+
+
+def detect_speech_regions(audio: np.ndarray) -> list[tuple[float, float]] | None:
+    """Find voiced audio before MLX decoding; fall back to full audio on VAD failure."""
+    try:
+        from faster_whisper.vad import VadOptions, get_speech_timestamps
+        regions = get_speech_timestamps(
+            audio,
+            vad_options=VadOptions(threshold=0.35, min_speech_duration_ms=200,
+                                   min_silence_duration_ms=500, speech_pad_ms=500),
+            sampling_rate=16000,
+        )
+    except Exception:
+        return None
+    return [(item["start"] / 16000, item["end"] / 16000) for item in regions]
+
+
 def run_mlx_whisper(audio_path: Path, output_dir: Path, hotword_context: dict[str, Any], progress_callback=None) -> Path:
     import mlx_whisper
 
@@ -398,10 +463,13 @@ def run_mlx_whisper(audio_path: Path, output_dir: Path, hotword_context: dict[st
             reliable_language = decoded.get("language")
         return decoded
 
+    emit_asr_progress(progress_callback, stage="vad", message="正在检测人声，跳过长时间无语音片段", percent=18)
+    speech_regions = detect_speech_regions(audio)
     result = transcribe_chunks(audio, decode, lambda done, total: emit_asr_progress(
         progress_callback, stage="mlx", message=f"音频分段转写 {done}/{total}（含异常段重试）",
         percent=18 + int(75 * done / total),
-    )) if duration > 180 else decode(audio, False)
+    ), has_speech=asr_speech_detector(audio), speech_regions=speech_regions
+    ) if duration > 180 or speech_regions is not None else decode(audio, False)
     segments = list(result.get("segments") or [])
     repetition_candidates = [
         item for item in segments
@@ -423,7 +491,7 @@ def run_mlx_whisper(audio_path: Path, output_dir: Path, hotword_context: dict[st
     for segment in segments:
         raw_text = str(segment.get("text") or "").strip()
         replacement_chars += raw_text.count("\ufffd")
-        text = sanitize_asr_replacement_chars(raw_text)
+        text = sanitize_asr_replacement_chars(raw_text, float(segment.get("end") or 0) - float(segment.get("start") or 0))
         if not text:
             continue
         start = float(segment.get("start") or 0)
@@ -461,6 +529,10 @@ def run_mlx_whisper(audio_path: Path, output_dir: Path, hotword_context: dict[st
         "asr_pipeline_version": ASR_PIPELINE_VERSION,
         "audio_chunks": result.get("audio_chunks", []),
         "unresolved_intervals": result.get("unresolved_intervals", []),
+        "vad_predecode": result.get("vad_predecode", False),
+        "vad_decoded_windows": result.get("vad_decoded_windows", 0),
+        "vad_skipped_seconds": result.get("vad_skipped_seconds", 0),
+        "vad_no_speech": result.get("vad_no_speech", False),
         "device": "metal",
         "model": model_name,
         "language": result.get("language") or language_hint or "unknown",
@@ -604,7 +676,7 @@ def run_faster_whisper(audio_path: Path, output_dir: Path, hotword_context: dict
 
             if audio_duration > 180:
                 from types import SimpleNamespace
-                chunk_result = transcribe_chunks(audio, decode)
+                chunk_result = transcribe_chunks(audio, decode, has_speech=asr_speech_detector(audio))
                 candidate_segments = [SimpleNamespace(**s) for s in chunk_result["segments"]]
                 candidate_info = SimpleNamespace(language=chunk_result["language"], duration=audio_duration)
             else:
@@ -638,7 +710,7 @@ def run_faster_whisper(audio_path: Path, output_dir: Path, hotword_context: dict
     for index, segment in enumerate(segments, start=1):
         raw_text = segment.text.strip()
         replacement_chars += raw_text.count("\ufffd")
-        text = sanitize_asr_replacement_chars(raw_text)
+        text = sanitize_asr_replacement_chars(raw_text, float(segment.end) - float(segment.start))
         if not text:
             continue
         lines.extend([str(index), f"{srt_timestamp(segment.start)} --> {srt_timestamp(segment.end)}", text, ""])
@@ -824,13 +896,67 @@ def asr_model_candidates(requested_model: str) -> list[str]:
     return candidates
 
 
-def sanitize_asr_replacement_chars(text: str) -> str:
+def sanitize_asr_replacement_chars(text: str, duration: float = 0) -> str:
     """Keep uncertain speech visible without rejecting an otherwise complete transcript."""
     text = str(text or "")
+    if is_known_hallucination(text, duration):
+        return UNCERTAIN_AUDIO
     if looks_like_asr_repetition(text):
         return "[ASR 重复失真，待核实]"
     text = re.sub(r"\ufffd+", "[听不清]", text)
     return re.sub(r"(?:\[听不清\]\s*){2,}", "[听不清]", text).strip()
+
+
+def sanitize_cached_asr(content: str) -> str:
+    """Mask confirmed Whisper artifacts in old ASR files without editing them."""
+    blocks = re.split(r"(\n\s*\n)", content)
+    cues: list[dict[str, Any]] = []
+    for index in range(0, len(blocks), 2):
+        lines = blocks[index].splitlines()
+        timing = next((i for i, line in enumerate(lines) if "-->" in line), None)
+        if timing is not None and timing + 1 < len(lines):
+            clocks = re.findall(r"(\d+):(\d+):(\d+)[,.](\d+)", lines[timing])
+            if len(clocks) != 2:
+                continue
+            start, end = [int(h) * 3600 + int(m) * 60 + int(s) + int(ms.ljust(3, "0")[:3]) / 1000
+                          for h, m, s, ms in clocks]
+            text = " ".join(lines[timing + 1:])
+            cues.append({"index": index, "lines": lines[:timing + 1], "start": start,
+                         "end": end, "text": text, "key": compact_text(text)})
+        elif is_known_hallucination(blocks[index]):
+            blocks[index] = UNCERTAIN_AUDIO
+    masked: set[int] = {i for i, cue in enumerate(cues)
+                        if is_known_hallucination(cue["text"], cue["end"] - cue["start"])}
+    start = 0
+    while start < len(cues):
+        stop = start + 1
+        while (stop < len(cues) and cues[stop]["key"] == cues[start]["key"]
+               and cues[stop]["start"] <= cues[stop - 1]["end"] + 5):
+            stop += 1
+        long_run = stop - start >= 2 and all(
+            cue["end"] - cue["start"] >= 15 for cue in cues[start:stop]
+        )
+        if (len(cues[start]["key"]) >= 3 and not cues[start]["text"].startswith("[")
+                and (stop - start >= 6 or long_run)):
+            masked.update(range(start, stop))
+        start = stop
+    for index in masked:
+        cue = cues[index]
+        blocks[cue["index"]] = "\n".join([*cue["lines"], UNCERTAIN_AUDIO])
+    return "".join(blocks)
+
+
+def sanitize_asr_artifact_phrases(content: str) -> str:
+    """Remove confirmed ASR hallucination wording from previously built briefs."""
+    content = re.sub(r"请不吝点赞.{0,35}?明镜与点点栏目", "[疑似 ASR 幻觉，音频待核实]", content)
+    content = re.sub(r"明镜与点点栏目|欢迎收看订阅的频道|阿莱\s*拥有电影感",
+                     "[疑似 ASR 幻觉，音频待核实]", content)
+    content = re.sub(
+        r"优优独播剧场(?:[—－\-\s]*YoYo Television Series Exclusive)?|YoYo Television Series Exclusive",
+        "[疑似 ASR 幻觉，音频待核实]", content, flags=re.IGNORECASE,
+    )
+    return re.sub(r"(?:中文)?字幕志愿者\s*(?:李宗盛|杨栋梁)",
+                  "[疑似 ASR 幻觉，音频待核实]", content)
 
 
 def looks_like_asr_repetition(text: str) -> bool:

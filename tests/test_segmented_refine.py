@@ -11,7 +11,8 @@ from pressconf import model_client
 from pressconf.brief import parse_transcript, segment_cues
 from pressconf.refine import refine_brief, extract_section_images
 from pressconf.segmented_refine import (
-    MAX_EVIDENCE_CHARS, parse_batch, plan_batches, refine_segmented, section_ids, validate_sections,
+    MAX_EVIDENCE_CHARS, MAX_GENERATION_TOKENS, parse_batch, plan_batches, refine_segmented, section_ids,
+    summary_without_details, validate_sections,
 )
 
 
@@ -24,6 +25,12 @@ def fixtures(count=9):
 
 
 class SegmentedTests(unittest.TestCase):
+    def test_summary_discards_model_repeated_details(self):
+        summary = '# 简报\n\n## 概述\n\n完整概述。\n\n## 发布会详情\n\n**1. 重复章节**\n- 重复内容'
+        self.assertEqual(summary_without_details(summary), '# 简报\n\n## 概述\n\n完整概述。')
+        self.assertEqual(summary_without_details(summary.replace('发布会详情', '逐字稿正文')),
+                         '# 简报\n\n## 概述\n\n完整概述。')
+
     def test_every_segment_consumed_and_bounded(self):
         source, transcript = fixtures()
         batches = plan_batches(source, transcript)
@@ -130,6 +137,100 @@ class SegmentedTests(unittest.TestCase):
                 with self.assertRaises(model_client.IncompleteGenerationError):
                     refine_brief(root, '发布会', root, user_instruction='新要求', model_config=config)
             self.assertEqual(output.read_text(), original)
+
+    def test_repeated_summary_details_are_replaced_by_validated_batches(self):
+        source, transcript = fixtures(1)
+
+        def fake_model(**kwargs):
+            prompt = kwargs['messages'][-1]['content']
+            kwargs['on_metadata']({'stop_reason': 'stop', 'usage': {'completion_tokens': 100}})
+            if '<batch>' in prompt:
+                return '<!-- FACTS -->\n产品价格\n<!-- DETAILS -->\n**1. 已核实标题**\n- 已核实详情'
+            return '# 简报\n\n## 概述\n\n完整概述。\n\n## 发布会详情\n\n**1. 模型重复标题**\n- 模型重复详情'
+
+        with tempfile.TemporaryDirectory() as temp, patch('pressconf.segmented_refine.stream_chat_model', side_effect=fake_model):
+            result, state = refine_segmented(
+                result_dir=Path(temp), source=source, transcript=transcript,
+                instructions='完整覆盖',
+                model_config={'provider': 'openai-compatible', 'base_url': 'https://test.invalid',
+                              'model': 'azure_openai/gpt-5.6-sol', 'api_key': 'secret'},
+                task_type='business_review',
+            )
+        self.assertEqual(state['status'], 'complete')
+        self.assertIn('**1. 已核实标题**', result)
+        self.assertNotIn('模型重复标题', result)
+
+    def test_daily_limit_switches_to_configured_fallback_without_retrying_primary(self):
+        source, transcript = fixtures(1)
+        calls = []
+
+        def fake_model(**kwargs):
+            calls.append(kwargs['model'])
+            if kwargs['model'] == 'limited':
+                raise RuntimeError('Anthropic API 返回错误：429 Too many tokens per day')
+            prompt = kwargs['messages'][-1]['content']
+            kwargs['on_metadata']({'stop_reason': 'end_turn', 'usage': {'input_tokens': 10, 'output_tokens': 10}})
+            if '<batch>' in prompt:
+                batch = json.loads(prompt.split('<batch>')[1].split('</batch>')[0])
+                return '<!-- FACTS -->\n产品价格\n<!-- DETAILS -->\n' + '\n\n'.join(
+                    f'**{item["number"]}. 产品发布**\n- {item["text"]}' for item in batch)
+            return '# 发布会\n\n## 发布会概述\n\n产品总结完整。'
+
+        with tempfile.TemporaryDirectory() as temp, patch('pressconf.segmented_refine.stream_chat_model', side_effect=fake_model):
+            config = {
+                'provider': 'anthropic', 'base_url': 'https://test.invalid', 'model': 'limited', 'api_key': 'one',
+                'fallbacks': [
+                    {'provider': 'anthropic', 'base_url': 'https://test.invalid', 'model': 'fallback', 'api_key': 'two'}
+                ],
+            }
+            result, state = refine_segmented(
+                result_dir=Path(temp), source=source, transcript=transcript,
+                instructions='完整覆盖', model_config=config, task_type='business_review',
+            )
+
+        self.assertEqual(calls, ['limited', 'fallback', 'limited', 'fallback'])
+        self.assertIn('产品总结完整', result)
+        self.assertEqual(state['status'], 'complete')
+        self.assertTrue(any(item.get('model') == 'fallback' and not item.get('error') for item in state['calls']))
+
+    def test_repeated_length_stop_switches_to_next_fallback(self):
+        source, transcript = fixtures(1)
+        calls = []
+
+        def fake_model(**kwargs):
+            calls.append((kwargs['model'], kwargs['max_tokens']))
+            if kwargs['model'] == 'limited':
+                raise RuntimeError('Anthropic API 返回错误：429 Too many requests')
+            if kwargs['model'] == 'reasoning':
+                raise model_client.IncompleteGenerationError('模型输出未完整结束（停止原因：length）。')
+            prompt = kwargs['messages'][-1]['content']
+            kwargs['on_metadata']({'stop_reason': 'stop', 'usage': {'completion_tokens': 100}})
+            if '<batch>' in prompt:
+                batch = json.loads(prompt.split('<batch>')[1].split('</batch>')[0])
+                return '<!-- FACTS -->\n产品价格\n<!-- DETAILS -->\n' + '\n\n'.join(
+                    f'**{item["number"]}. 产品发布**\n- {item["text"]}' for item in batch)
+            return '# 发布会\n\n## 发布会概述\n\n产品总结完整。'
+
+        with tempfile.TemporaryDirectory() as temp, patch('pressconf.segmented_refine.stream_chat_model', side_effect=fake_model):
+            config = {
+                'provider': 'anthropic', 'base_url': 'https://test.invalid', 'model': 'limited', 'api_key': 'one',
+                'fallbacks': [
+                    {'provider': 'openai-compatible', 'base_url': 'https://test.invalid', 'model': 'reasoning', 'api_key': 'two'},
+                    {'provider': 'openai-compatible', 'base_url': 'https://test.invalid', 'model': 'final', 'api_key': 'three'},
+                ],
+            }
+            result, state = refine_segmented(
+                result_dir=Path(temp), source=source, transcript=transcript,
+                instructions='完整覆盖', model_config=config, task_type='business_review',
+            )
+
+        self.assertEqual(
+            [model for model, _ in calls],
+            ['limited', 'reasoning', 'reasoning', 'final', 'limited', 'reasoning', 'reasoning', 'final'],
+        )
+        self.assertTrue(all(limit == MAX_GENERATION_TOKENS for _, limit in calls))
+        self.assertIn('产品总结完整', result)
+        self.assertEqual(state['status'], 'complete')
 
 
 class CompletionTests(unittest.TestCase):

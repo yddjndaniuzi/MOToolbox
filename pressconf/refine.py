@@ -5,11 +5,12 @@ import re
 from pathlib import Path
 from typing import Any, Callable
 
-from pressconf.config_store import resolve_model
+from pressconf.config_store import resolve_model, strength_for_tier
 from pressconf.coverage import build_coverage_report, transcript_evidence
 from pressconf.domains import DomainProfile, TASK_TYPES, domain_from_manifest, sections_for_task, task_type_from_manifest
-from pressconf.model_client import call_chat_model, stream_chat_model
+from pressconf.model_client import call_chat_model, is_model_capacity_error, stream_chat_model
 from pressconf.segmented_refine import refine_segmented, section_ids, validate_sections
+from pressconf.transcript import sanitize_asr_artifact_phrases, sanitize_cached_asr
 
 def refine_brief(
     result_dir: Path,
@@ -19,21 +20,13 @@ def refine_brief(
     tier_override: str = "",
     format_override: str = "",
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
-    model_config: dict[str, str] | None = None,
+    model_config: dict[str, Any] | None = None,
 ) -> tuple[Path, dict[str, Any]]:
-    model_config = model_config or resolve_model(base_dir, "brief_refine")
-    api_key = model_config["api_key"].strip()
-    base_url = model_config["base_url"].rstrip("/")
-    model = model_config["model"].strip()
-    provider = model_config["provider"].strip()
-    if not api_key:
-        raise RuntimeError(f"没有配置 {model_config.get('name', model)} 的 API Key。")
-
     brief_path = result_dir / "brief_base.md"
     if not brief_path.exists():
         raise RuntimeError("还没有生成简报基础稿，请先完成转写和基础稿生成。")
 
-    source = brief_path.read_text(encoding="utf-8")
+    source = sanitize_asr_artifact_phrases(brief_path.read_text(encoding="utf-8"))
     manifest = load_json_file(result_dir / "manifest.json")
     domain, domain_resolution = domain_from_manifest(manifest)
     task_type = task_type_from_manifest(manifest)
@@ -45,6 +38,17 @@ def refine_brief(
         result_dir, source, transcript_meta, display_name, tier_override, format_override,
         domain_id=domain.id,
     )
+    model_config = model_config or resolve_model(
+        base_dir,
+        "brief_refine",
+        strength_for_tier(str(volume.get("tier") or "")),
+    )
+    api_key = model_config["api_key"].strip()
+    base_url = model_config["base_url"].rstrip("/")
+    model = model_config["model"].strip()
+    provider = model_config["provider"].strip()
+    if not api_key:
+        raise RuntimeError(f"没有配置 {model_config.get('name', model)} 的 API Key。")
     partial_path = result_dir / "brief_refined.partial.md"
     if partial_path.exists():
         partial_path.unlink()
@@ -69,25 +73,42 @@ def refine_brief(
             "batch_count": generation_meta["batch_count"],
         }
     else:
-        refined = call_deepseek_streaming(
-            api_key=api_key,
-            base_url=base_url,
-            model=model,
-            provider=provider,
-            display_name=display_name,
-            source=source,
-            transcript_evidence_text=evidence,
-            domain=domain,
-            domain_resolution=domain_resolution,
-            task_type=task_type,
-            ledger_context=ledger_context,
-            transcript_meta=transcript_meta,
-            user_instruction=user_instruction,
-            volume=volume,
-            partial_path=partial_path,
-            progress_callback=progress_callback,
-            generation_meta=generation_meta,
-        )
+        candidates = [model_config, *(model_config.get("fallbacks") or [])]
+        for candidate_index, candidate in enumerate(candidates):
+            api_key = candidate["api_key"].strip()
+            base_url = candidate["base_url"].rstrip("/")
+            model = candidate["model"].strip()
+            provider = candidate["provider"].strip()
+            try:
+                refined = call_deepseek_streaming(
+                    api_key=api_key,
+                    base_url=base_url,
+                    model=model,
+                    provider=provider,
+                    display_name=display_name,
+                    source=source,
+                    transcript_evidence_text=evidence,
+                    domain=domain,
+                    domain_resolution=domain_resolution,
+                    task_type=task_type,
+                    ledger_context=ledger_context,
+                    transcript_meta=transcript_meta,
+                    user_instruction=user_instruction,
+                    volume=volume,
+                    partial_path=partial_path,
+                    progress_callback=progress_callback,
+                    generation_meta=generation_meta,
+                )
+                break
+            except RuntimeError as exc:
+                if not is_model_capacity_error(exc) or candidate_index + 1 >= len(candidates):
+                    raise
+                if partial_path.exists():
+                    partial_path.unlink()
+                if progress_callback:
+                    progress_callback({"message": f"{model} 限流，正在切换备用模型"})
+        else:
+            raise RuntimeError("所有候选模型均不可用。")
     validate_sections(source, refined)
     refined = restore_image_blocks(source, refined)
     unresolved = (transcript_meta.get("quality") or {}).get("unresolved_intervals") or []
@@ -401,6 +422,8 @@ def load_raw_transcript(result_dir: Path, transcript_meta: dict[str, Any]) -> st
         if path.exists():
             try:
                 text = path.read_text(encoding="utf-8", errors="ignore")
+                if path.name.startswith("asr."):
+                    text = sanitize_cached_asr(text)
             except OSError:
                 text = ""
     return text

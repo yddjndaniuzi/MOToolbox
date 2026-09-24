@@ -81,7 +81,7 @@
           <form action="{{ url_for('refine_generate', slug=slug) }}" method="post" id="refineForm" class="brief-refine-form">
             <label class="refine-instruction">
               <span>二次加工 / 自定义 prompt</span>
-              <textarea id="refineInstruction" name="user_instruction" rows="4" placeholder="例如：重点强化价格策略和竞品判断；发布会详情改成老板速读；保留技术名英文；压缩到 1200 字。">{{ refine_job.get("user_instruction") or refine_meta.get("user_instruction", "") }}</textarea>
+              <textarea id="refineInstruction" name="user_instruction" rows="4" placeholder="例如：重点强化价格策略和竞品判断；发布会详情改成老板速读；保留技术名英文；压缩到 1200 字。">{{ refine_job.get("user_instruction", "") }}</textarea>
             </label>
             {% set current_tier = refine_job.get("brief_tier") or "" %}
             <label>
@@ -104,9 +104,22 @@
               </select>
             </label>
             {% endif %}
-            <button type="submit" id="refineSubmit" {% if refine_job.get("status") == "running" %}disabled{% endif %}>
-              {% if refine_job.get("status") == "running" %}精加工中{% else %}按要求精加工{% endif %}
-            </button>
+            <label>
+              <span>本次精加工模型</span>
+              <select name="model_id" id="refineModel">
+                <option value="" {% if not refine_job.get("model_id") %}selected{% endif %}>按报告档位自动选择</option>
+                {% for model in refine_pool_models %}
+                  <option value="{{ model.id }}" data-model-name="{{ model.name }}" {% if refine_job.get("model_id") == model.id %}selected{% endif %}>{{ model.name }} · {{ model.model }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <div class="refine-actions">
+              <button type="submit" id="refineSubmit" {% if refine_job.get("status") == "running" %}disabled{% endif %}>
+                {% if refine_job.get("status") == "running" %}精加工中{% else %}按要求精加工{% endif %}
+              </button>
+              <button type="button" class="clear-session-button" id="clearRefineSession" {% if refine_job.get("status") == "running" %}disabled{% endif %}>清除 Session</button>
+            </div>
+            <p class="muted refine-session-note">清除本场精加工缓存后，下一次会重新生成全部章节；已完成简报保留供对照。</p>
           </form>
         {% endif %}
         <div
@@ -119,7 +132,7 @@
           </div>
           <p id="refineMessage">{{ refine_job.get("message", "") }}</p>
         </div>
-        <p class="muted">当前活跃模型：{{ active_refine_model.get("model") }} · {{ active_refine_model.get("provider") }}</p>
+        <p class="muted">模型路由：轻量 {{ refine_models_by_strength.light.get("model") }} · 标准 {{ refine_models_by_strength.standard.get("model") }} · 高强度 {{ refine_models_by_strength.heavy.get("model") }}</p>
         {% if refine_job.get("model") %}
           <p class="muted">本次精加工任务：{{ refine_job.get("model") }} · {{ refine_job.get("provider") }}</p>
         {% endif %}
@@ -137,6 +150,7 @@
     </section>
   </main>
 
+  <script src="{{ url_for('static', filename='ui.js') }}"></script>
   <script>
     const slug = "{{ slug }}";
     const form = document.getElementById("briefForm");
@@ -149,8 +163,22 @@
     const refineStatus = document.getElementById("refineStatus");
     const refineProgress = document.getElementById("refineProgress");
     const refineMessage = document.getElementById("refineMessage");
+    const refineModel = document.getElementById("refineModel");
+    const clearRefineSession = document.getElementById("clearRefineSession");
     const copyBrief = document.getElementById("copyBrief");
-    const activeRefineModel = {{ active_refine_model.get("model") | tojson }};
+    const refineModelsByStrength = {{ {
+      "light": refine_models_by_strength.light.get("model"),
+      "standard": refine_models_by_strength.standard.get("model"),
+      "heavy": refine_models_by_strength.heavy.get("model")
+    } | tojson }};
+
+    function selectedRefineModel() {
+      if (refineModel?.value) return refineModel.selectedOptions[0]?.dataset.modelName || "所选模型";
+      const tier = document.getElementById("briefTier")?.value || "";
+      if (!tier) return "自动路由模型";
+      const strength = tier === "full" ? "heavy" : (tier === "nano" ? "light" : "standard");
+      return refineModelsByStrength[strength] || "模型";
+    }
 
     form?.addEventListener("submit", () => {
       submit.disabled = true;
@@ -199,10 +227,11 @@
 
     refineForm?.addEventListener("submit", () => {
       refineSubmit.disabled = true;
+      if (clearRefineSession) clearRefineSession.disabled = true;
       refineSubmit.textContent = "精加工中";
       refineStatus.hidden = false;
       refineProgress.style.width = "8%";
-      refineMessage.textContent = `${activeRefineModel} 精加工中`;
+      refineMessage.textContent = `${selectedRefineModel()} 精加工中`;
     });
 
     async function pollRefineJob() {
@@ -211,6 +240,7 @@
       if (job.status === "running") {
         refineStatus.hidden = false;
         refineSubmit.disabled = true;
+        if (clearRefineSession) clearRefineSession.disabled = true;
         refineSubmit.textContent = "精加工中";
         refineProgress.style.width = `${job.percent || 0}%`;
         refineMessage.textContent = job.message || "处理中";
@@ -226,9 +256,28 @@
         refineProgress.style.width = "100%";
         refineMessage.textContent = job.message || "精加工失败";
         refineSubmit.disabled = false;
+        if (clearRefineSession) clearRefineSession.disabled = false;
         refineSubmit.textContent = "重试精加工";
       }
     }
+
+    clearRefineSession?.addEventListener("click", async () => {
+      const confirmed = await MOUI.confirm(
+        "清除本场精加工分段缓存和临时状态？已完成简报会保留，下一次生成将重新处理全部章节。",
+        {title: "清除精加工 Session？", confirmText: "清除 Session", danger: true}
+      );
+      if (!confirmed) return;
+      clearRefineSession.disabled = true;
+      try {
+        const response = await fetch({{ url_for('refine_clear_session', slug=slug) | tojson }}, {method: "POST"});
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || "清除失败");
+        window.location.reload();
+      } catch (error) {
+        clearRefineSession.disabled = false;
+        MOUI.toast(error.message || "清除失败", "error");
+      }
+    });
 
     if (refineStatus && !refineStatus.hidden) {
       pollRefineJob();

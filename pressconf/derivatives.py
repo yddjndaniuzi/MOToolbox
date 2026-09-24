@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 from pressconf.config_store import load_lark_config, resolve_model
 from pressconf.lark_export import parse_json_object, post_json
-from pressconf.model_client import stream_chat_model
+from pressconf.model_client import is_model_capacity_error, is_model_length_error, stream_chat_model
 
 
 DEFAULT_WRITING_SYSTEM = (
@@ -91,7 +91,11 @@ def generate_derivatives(
     requested_outputs: list[str] | tuple[str, ...] | None = None,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    model_config = resolve_model(base_dir, "writing")
+    requested = normalize_requested_outputs(requested_outputs)
+    if not requested:
+        raise RuntimeError("请至少选择一份本次要生成的材料。")
+    strength = "heavy" if "review" in requested else "standard" if ({"asset", "press"} & set(requested)) else "light"
+    model_config = resolve_model(base_dir, "writing", strength)
     api_key = model_config["api_key"].strip()
     base_url = model_config["base_url"].rstrip("/")
     model = model_config["model"].strip()
@@ -113,10 +117,6 @@ def generate_derivatives(
         "existing_press": existing_press,
         "existing_qa": existing_qa,
     }
-    requested = normalize_requested_outputs(requested_outputs)
-    if not requested:
-        raise RuntimeError("请至少选择一份本次要生成的材料。")
-
     sections: dict[str, str] = {}
     asset_reference = existing_asset.strip() or asset_table.strip()
     if "asset" in requested:
@@ -129,6 +129,7 @@ def generate_derivatives(
             max_tokens=8000,
             stage="卖点资产表",
             progress_callback=progress_callback,
+            fallback_models=model_config.get("fallbacks"),
         )
         asset_reference = sections["asset"]
 
@@ -143,6 +144,7 @@ def generate_derivatives(
             stage="评测指南",
             system_prompt=REVIEW_GUIDE_SYSTEM,
             progress_callback=progress_callback,
+            fallback_models=model_config.get("fallbacks"),
         )
 
     if "press" in requested:
@@ -155,6 +157,7 @@ def generate_derivatives(
             max_tokens=12000,
             stage="新闻稿",
             progress_callback=progress_callback,
+            fallback_models=model_config.get("fallbacks"),
         )
 
     if "qa" in requested:
@@ -177,6 +180,7 @@ def generate_derivatives(
             max_tokens=5000,
             stage="自检与待确认",
             progress_callback=progress_callback,
+            fallback_models=model_config.get("fallbacks"),
         )
 
     result = sections_to_result(sections)
@@ -207,6 +211,8 @@ def call_writing_model_streaming(
     stage: str,
     system_prompt: str = DEFAULT_WRITING_SYSTEM,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    fallback_models: list[dict[str, Any]] | None = None,
+    selected_model: dict[str, str] | None = None,
 ) -> str:
     messages = [
             {
@@ -215,25 +221,49 @@ def call_writing_model_streaming(
             },
             {"role": "user", "content": prompt},
     ]
-    chunks: list[str] = []
+    candidates = [{"api_key": api_key, "base_url": base_url, "model": model, "provider": provider}, *(fallback_models or [])]
+    result = ""
+    for candidate_index, candidate in enumerate(candidates):
+        chunks: list[str] = []
 
-    def handle_delta(delta: str) -> None:
-        chunks.append(delta)
-        current = "".join(chunks)
-        if progress_callback and len(current) % 120 < len(delta):
-            progress_callback({"stage": stage, "generated_chars": len(current), "preview": tail_preview(current)})
+        def handle_delta(delta: str) -> None:
+            chunks.append(delta)
+            current = "".join(chunks)
+            if progress_callback and len(current) % 120 < len(delta):
+                progress_callback({"stage": stage, "generated_chars": len(current), "preview": tail_preview(current)})
 
-    result = stream_chat_model(
-        provider=provider,
-        api_key=api_key,
-        base_url=base_url,
-        model=model,
-        messages=messages,
-        temperature=0.35,
-        max_tokens=max_tokens,
-        timeout=420,
-        on_delta=handle_delta,
-    )
+        try:
+            result = stream_chat_model(
+                provider=str(candidate["provider"]),
+                api_key=str(candidate["api_key"]),
+                base_url=str(candidate["base_url"]),
+                model=str(candidate["model"]),
+                messages=messages,
+                temperature=0.35,
+                max_tokens=max_tokens,
+                timeout=420,
+                on_delta=handle_delta,
+            )
+            if selected_model is not None:
+                selected_model.clear()
+                selected_model.update(
+                    {
+                        "id": str(candidate.get("id") or ""),
+                        "name": str(candidate.get("name") or candidate["model"]),
+                        "model": str(candidate["model"]),
+                        "provider": str(candidate["provider"]),
+                    }
+                )
+            break
+        except RuntimeError as exc:
+            capacity_error = is_model_capacity_error(exc)
+            length_error = is_model_length_error(exc)
+            has_fallback = candidate_index + 1 < len(candidates)
+            if not has_fallback or not (capacity_error or length_error) or (chunks and capacity_error and not length_error):
+                raise
+            if progress_callback:
+                reason = "达到输出上限" if length_error else "限流"
+                progress_callback({"stage": stage, "message": f"{candidate['model']} {reason}，切换备用模型"})
     if not result:
         raise RuntimeError("模型没有返回内容。")
     if progress_callback:

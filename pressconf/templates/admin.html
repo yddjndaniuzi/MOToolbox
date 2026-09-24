@@ -42,6 +42,87 @@
           </div>
           <span class="admin-pill">API Key：{{ secret_mask }}</span>
         </div>
+        <div class="model-section-heading">
+          <div>
+            <h3>模型池</h3>
+            <p>先维护可用模型，再按任务强度分配。修改模型不会自动改变已保存的路由。</p>
+          </div>
+          <a class="admin-button-link" href="{{ url_for('admin', new='1') }}#models">添加模型</a>
+        </div>
+        <div class="model-pool">
+          {% for item in models %}
+          <article class="model-pool-item {% if item.get('id') == model.get('id') %}active{% endif %}">
+            <a href="{{ url_for('admin', model=item.get('id')) }}#models">
+              <strong>{{ item.get('name') or item.get('id') }}</strong>
+              <code>{{ item.get('model') }}</code>
+              <span>{{ item.get('provider') }} · {{ item.get('base_url') }}</span>
+            </a>
+            {% if models|length > 1 %}
+            <form action="{{ url_for('admin_model_delete') }}" method="post" onsubmit="return confirm('确认删除这个模型配置？');">
+              <input type="hidden" name="model_id" value="{{ item.get('id') }}">
+              <button type="submit" class="danger-quiet">删除</button>
+            </form>
+            {% endif %}
+          </article>
+          {% else %}
+          <p class="muted">还没有模型配置。</p>
+          {% endfor %}
+        </div>
+
+        {% if models %}
+        <form action="{{ url_for('admin_model_routing_save') }}" method="post" class="model-routing-form">
+          <div class="model-section-heading">
+            <div>
+              <h3>任务强度路由</h3>
+              <p>主模型负责日常调用；遇到模型限流或不可用时，可按顺序切换到备用模型。</p>
+            </div>
+          </div>
+          <div class="model-routing-grid">
+            {% for strength, strength_meta in model_strengths.items() %}
+            {% set route = model_routes.get(strength, {}) %}
+            {% set fallbacks = route.get('fallbacks', []) %}
+            <fieldset>
+              <legend>{{ strength_meta.label }}</legend>
+              <p>{{ strength_meta.description }}</p>
+              <label>
+                <span>主模型</span>
+                <select name="route_{{ strength }}_primary">
+                  {% for item in models %}
+                  <option value="{{ item.get('id') }}" {% if route.get('primary') == item.get('id') %}selected{% endif %}>{{ item.get('name') or item.get('id') }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label>
+                <span>备用 1</span>
+                <select name="route_{{ strength }}_fallback_1">
+                  <option value="">不设置</option>
+                  {% for item in models %}
+                  <option value="{{ item.get('id') }}" {% if fallbacks|length > 0 and fallbacks[0] == item.get('id') %}selected{% endif %}>{{ item.get('name') or item.get('id') }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label>
+                <span>备用 2</span>
+                <select name="route_{{ strength }}_fallback_2">
+                  <option value="">不设置</option>
+                  {% for item in models %}
+                  <option value="{{ item.get('id') }}" {% if fallbacks|length > 1 and fallbacks[1] == item.get('id') %}selected{% endif %}>{{ item.get('name') or item.get('id') }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+            </fieldset>
+            {% endfor %}
+          </div>
+          <button type="submit">保存任务路由</button>
+        </form>
+        {% endif %}
+
+        <div class="model-section-heading model-editor-heading">
+          <div>
+            <h3>{% if model %}编辑模型{% else %}添加模型{% endif %}</h3>
+            <p>模型池不限制数量；新增时若配置 ID 重复，会自动生成带序号的唯一 ID。同一个 Secret Ref 可以让多个模型共用一把 API Key。</p>
+          </div>
+        </div>
         <form action="{{ url_for('admin_model_save') }}" method="post">
           {% set saved_provider_tab = model.get('provider_tab', '') %}
           {% set provider = model.get('provider', 'openai-compatible') %}
@@ -60,6 +141,7 @@
             <span data-current-base></span>
           </div>
           <input type="hidden" name="provider_tab" value="{{ provider_tab }}">
+          <input type="hidden" name="original_id" value="{{ model.get('id', '') }}">
           <div class="control-row">
             <label>
               <span>配置 ID</span>
@@ -105,7 +187,7 @@
             <label class="radio-line"><input type="checkbox" name="use_image_match" {% if 'image_match' in uses %}checked{% endif %}> <span>图文匹配</span></label>
             <label class="radio-line"><input type="checkbox" name="use_knowledge_rag" {% if 'knowledge_rag' in uses %}checked{% endif %}> <span>知识库 RAG</span></label>
           </div>
-          <button type="submit">保存模型配置</button>
+          <button type="submit">{% if model %}保存模型配置{% else %}添加到模型池{% endif %}</button>
         </form>
       </section>
 

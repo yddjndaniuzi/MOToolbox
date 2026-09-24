@@ -80,7 +80,9 @@ class EvidenceTests(unittest.TestCase):
                 output.setsampwidth(2)
                 output.setframerate(16000)
                 output.writeframes(struct.pack("<16000h", *([0] * 16000)))
-            with patch.dict(sys.modules, {"mlx_whisper": fake_module}), patch.dict(os.environ, {}, clear=True):
+            with patch.dict(sys.modules, {"mlx_whisper": fake_module}), patch.dict(os.environ, {}, clear=True), patch(
+                "pressconf.transcript.detect_speech_regions", return_value=None
+            ):
                 target = run_mlx_whisper(audio_path, root, {})
             self.assertIn("小鹏 MONA L03", target.read_text(encoding="utf-8"))
             self.assertNotIn("ASR 重复失真", target.read_text(encoding="utf-8"))
@@ -93,6 +95,26 @@ class EvidenceTests(unittest.TestCase):
             self.assertEqual(quality["discarded_tail_segments"], 1)
             self.assertIn("elapsed_sec", quality)
             self.assertIn("realtime_factor", quality)
+
+    def test_mlx_vad_skips_silent_audio_before_decoder(self) -> None:
+        fake_module = SimpleNamespace(transcribe=lambda *_args, **_kwargs: self.fail("decoder received silence"))
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            audio_path = root / "audio.wav"
+            with wave.open(str(audio_path), "wb") as output:
+                output.setnchannels(1)
+                output.setsampwidth(2)
+                output.setframerate(16000)
+                output.writeframes(b"\x00\x00" * (60 * 16000))
+            with patch.dict(sys.modules, {"mlx_whisper": fake_module}), patch(
+                "pressconf.transcript.detect_speech_regions", return_value=[]
+            ):
+                target = run_mlx_whisper(audio_path, root, {})
+            self.assertIn("未检测到可转写的人声", target.read_text(encoding="utf-8"))
+            quality = json.loads((root / "quality.json").read_text(encoding="utf-8"))
+            self.assertTrue(quality["vad_predecode"])
+            self.assertTrue(quality["vad_no_speech"])
+            self.assertEqual(quality["vad_decoded_windows"], 0)
 
     def test_asr_runaway_repetition_is_marked_not_silently_accepted(self) -> None:
         broken = "宇宙" * 60 + "�"

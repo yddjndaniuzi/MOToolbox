@@ -16,6 +16,34 @@ class IncompleteGenerationError(RuntimeError):
     """The provider did not confirm a complete text response."""
 
 
+def is_model_capacity_error(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "too many tokens per day",
+            "rate_limit_error",
+            "rate limit",
+            "status code: 429",
+            "返回错误：429",
+            "overloaded_error",
+        )
+    )
+
+
+def is_model_length_error(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "停止原因：length",
+            "停止原因：max_tokens",
+            "stop_reason: length",
+            "stop_reason: max_tokens",
+        )
+    )
+
+
 def validate_completion(reason: str | None, allowed: set[str]) -> None:
     if reason not in allowed:
         raise IncompleteGenerationError(
@@ -124,12 +152,13 @@ def call_openai_compatible(
     max_tokens: int,
     timeout: int,
 ) -> str:
-    payload = {
-        "model": model,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-    }
+    payload = openai_compatible_payload(
+        model=model,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        stream=False,
+    )
     data = post_json(
         f"{base_url.rstrip('/')}/chat/completions",
         payload,
@@ -162,13 +191,13 @@ def stream_openai_compatible(
     on_delta: Callable[[str], None] | None,
     on_metadata: Callable[[dict[str, Any]], None] | None = None,
 ) -> str:
-    payload = {
-        "model": model,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-        "stream": True,
-    }
+    payload = openai_compatible_payload(
+        model=model,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        stream=True,
+    )
     request = urllib.request.Request(
         f"{base_url.rstrip('/')}/chat/completions",
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -182,10 +211,11 @@ def stream_openai_compatible(
     reason = None
     usage: dict[str, Any] = {}
     terminal_seen = False
+    malformed_event = False
     try:
         with urllib.request.urlopen(request, timeout=timeout, context=certifi_ssl_context()) as response:
             for raw_line in response:
-                line = raw_line.decode("utf-8", errors="ignore").strip()
+                line = raw_line.decode("utf-8").strip()
                 if not line or not line.startswith("data:"):
                     continue
                 data = line[5:].strip()
@@ -195,6 +225,7 @@ def stream_openai_compatible(
                 try:
                     payload = json.loads(data)
                 except json.JSONDecodeError:
+                    malformed_event = True
                     continue
                 maybe_error = payload.get("error")
                 if maybe_error:
@@ -217,8 +248,32 @@ def stream_openai_compatible(
         raise RuntimeError(f"无法连接 OpenAI-compatible API：{exc.reason}") from exc
     if on_metadata:
         on_metadata({"stop_reason": reason, "usage": usage, "terminal_seen": terminal_seen})
+    if malformed_event:
+        raise IncompleteGenerationError("OpenAI-compatible 流包含无法解析的数据帧，输出可能不完整；草稿已保留，请重试。")
     validate_completion(reason, {"stop"})
+    if not terminal_seen:
+        raise IncompleteGenerationError("OpenAI-compatible 流缺少 [DONE] 终止帧，输出可能不完整；草稿已保留，请重试。")
     return "".join(chunks).strip()
+
+
+def openai_compatible_payload(
+    *,
+    model: str,
+    messages: list[dict[str, str]],
+    temperature: float,
+    max_tokens: int,
+    stream: bool,
+) -> dict[str, Any]:
+    # Reasoning models exposed through OpenAI-compatible gateways commonly
+    # reject non-default temperature values. Since temperature is optional,
+    # omitting it preserves the provider/model default and works for both
+    # reasoning and conventional chat models.
+    return {
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "stream": stream,
+    }
 
 
 def call_anthropic(
@@ -281,7 +336,7 @@ def stream_anthropic(
     try:
         with urllib.request.urlopen(request, timeout=timeout, context=certifi_ssl_context()) as response:
             for raw_line in response:
-                line = raw_line.decode("utf-8", errors="ignore").strip()
+                line = raw_line.decode("utf-8").strip()
                 if not line.startswith("data:"):
                     continue
                 data = line[5:].strip()
@@ -338,10 +393,12 @@ def anthropic_payload(
     payload: dict[str, Any] = {
         "model": model,
         "messages": user_messages,
-        "temperature": temperature,
         "max_tokens": max_tokens,
         "stream": stream,
     }
+    # Some Anthropic models exposed through Bedrock-compatible gateways reject
+    # temperature entirely. It is optional in the Messages API, so omitting it
+    # is the most portable behavior across native and proxied Anthropic models.
     if system_parts:
         payload["system"] = "\n\n".join(system_parts)
     return payload

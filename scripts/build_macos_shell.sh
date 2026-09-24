@@ -3,13 +3,15 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
+export DEVELOPER_DIR="${DEVELOPER_DIR:-$(xcode-select -p)}"
 
 swift_package="macos/MOtoolboxShell"
 configuration="${MOTOOLBOX_SHELL_CONFIGURATION:-release}"
 app_name="${MOTOOLBOX_SHELL_APP_NAME:-MOtoolboxShell}"
 bundle_id="${MOTOOLBOX_SHELL_BUNDLE_ID:-com.motoolbox.shell}"
 target_arch="${MOTOOLBOX_SHELL_TARGET_ARCH:-arm64}"
+app_version="${MOTOOLBOX_APP_VERSION:-0.1.6}"
+app_build="${MOTOOLBOX_APP_BUILD:-7}"
 build_dir="$swift_package/.build/$configuration"
 executable="$build_dir/MOtoolboxShell"
 app_dir="dist/$app_name.app"
@@ -54,9 +56,9 @@ cat > "$app_dir/Contents/Info.plist" <<PLIST
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.1.0</string>
+  <string>$app_version</string>
   <key>CFBundleVersion</key>
-  <string>1</string>
+  <string>$app_build</string>
   <key>LSMinimumSystemVersion</key>
   <string>13.0</string>
   <key>CFBundleIconFile</key>

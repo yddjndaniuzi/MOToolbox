@@ -32,7 +32,11 @@ def generate_content_review_lab(
     additional_instruction: str = "",
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    model_config = resolve_model(base_dir, "writing")
+    model_config = resolve_model(
+        base_dir,
+        "writing",
+        "heavy" if len(source_text) > 24_000 else "standard",
+    )
     api_key = str(model_config["api_key"]).strip()
     if not api_key:
         raise RuntimeError(f"没有配置 {model_config.get('name', model_config.get('model', '模型'))} 的 API Key。")
@@ -64,6 +68,7 @@ def generate_content_review_lab(
             stage=stage,
             system_prompt=CONTENT_REVIEW_SYSTEM,
             progress_callback=progress_callback,
+            fallback_models=model_config.get("fallbacks"),
         )
         evidence_notes.append(f"## 片段 {index}/{len(chunks)}\n{note.strip()}")
 
@@ -85,6 +90,7 @@ def generate_content_review_lab(
         stage="媒体内容审核报告",
         system_prompt=CONTENT_REVIEW_SYSTEM,
         progress_callback=progress_callback,
+        fallback_models=model_config.get("fallbacks"),
     )
     result = sanitize_portable_markdown(result)
     warnings = sorted(set(INTERNAL_CODENAME_PATTERN.findall(result)))

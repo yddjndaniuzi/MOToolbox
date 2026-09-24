@@ -712,7 +712,7 @@ def build_report(
 
 
 def ai_polish_report(report: str, items: list[OpinionItem], payload: dict[str, Any], output_dir: Path) -> str:
-    model_config = resolve_model(Path(payload.get("base_dir") or output_dir), "writing")
+    model_config = resolve_model(Path(payload.get("base_dir") or output_dir), "writing", "standard")
     if not model_config.get("api_key"):
         return report + "\n\n> AI 聚合未运行：后台模型 API Key 未配置。\n"
     compact_items = "\n".join(
@@ -744,6 +744,7 @@ def ai_polish_report(report: str, items: list[OpinionItem], payload: dict[str, A
             max_tokens=9000,
             stage="opinion_scan",
             system_prompt="你是资深舆情和竞品情报分析师，擅长输出克制、可追溯、可行动的中文扫描报告。",
+            fallback_models=model_config.get("fallbacks"),
         )
     except Exception as exc:
         return report + f"\n\n> AI 聚合未完成：{exc}\n"
